@@ -1,3 +1,3 @@
-# bsdiff\_bzip2.net
+# bsdiff-rs
 
-C# binding that combines [bsdiff](https://github.com/mendsley/bsdiff) and bzip2 for diffing the binary streams in SS13. Including some glue Rust code.
+Rust translation of [bsdiff](https://github.com/mendsley/bsdiff), partially translated using [Corrode](https://github.com/jameysharp/corrode). Because of this, the code is licensed in the same way.

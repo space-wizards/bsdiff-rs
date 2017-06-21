@@ -1,6 +1,7 @@
 /*-
  * Copyright 2003-2005 Colin Percival
  * Copyright 2012 Matthew Endsley
+ * Modified 2017 Pieter-Jan Briers
  * All rights reserved
  *
  * Redistribution and use in source and binary forms, with or without
@@ -422,9 +423,7 @@ struct bsdiff_request {
 unsafe fn bsdiff_internal<T>(
     req: &mut bsdiff_request,
     opaque: &mut T,
-    malloc: unsafe extern "C" fn(usize) -> *mut libc::c_void,
-    write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32,
-    free: unsafe extern "C" fn(*mut libc::c_void),
+    write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32
 ) -> i32 {
     let mut _currentBlock;
     let mut I: *mut isize;
@@ -449,7 +448,7 @@ unsafe fn bsdiff_internal<T>(
     let mut buffer: *mut u8;
     let mut buf: [u8; 24] = [0; 24];
     if {
-        V = malloc(
+        V = libc::malloc(
             ((req.oldsize + 1isize) as (usize)).wrapping_mul(::std::mem::size_of::<isize>()),
         ) as (*mut isize);
         V
@@ -459,7 +458,7 @@ unsafe fn bsdiff_internal<T>(
     } else {
         I = req.I;
         qsufsort(I, V, req.old, req.oldsize);
-        free(V as (*mut libc::c_void));
+        libc::free(V as (*mut libc::c_void));
         buffer = req.buffer;
         scan = 0isize;
         len = 0isize;
@@ -656,8 +655,6 @@ pub unsafe fn bsdiff<T>(
     mut new: *const u8,
     mut newsize: isize,
     mut opaque: &mut T,
-    malloc: unsafe extern "C" fn(usize) -> *mut libc::c_void,
-    free: unsafe extern "C" fn(*mut libc::c_void),
     write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32,
 ) -> i32 {
     let mut result: i32;
@@ -670,7 +667,7 @@ pub unsafe fn bsdiff<T>(
         buffer: ptr::null_mut(),
     };
     if {
-        req.I = malloc(
+        req.I = libc::malloc(
             ((oldsize + 1isize) as (usize)).wrapping_mul(::std::mem::size_of::<isize>()),
         ) as (*mut isize);
         req.I
@@ -678,20 +675,20 @@ pub unsafe fn bsdiff<T>(
     {
         -1i32
     } else if {
-               req.buffer = malloc((newsize + 1isize) as (usize)) as (*mut u8);
+               req.buffer = libc::malloc((newsize + 1isize) as (usize)) as (*mut u8);
                req.buffer
            } == 0i32 as (*mut libc::c_void) as (*mut u8)
     {
-        free(req.I as (*mut libc::c_void));
+        libc::free(req.I as (*mut libc::c_void));
         -1i32
     } else {
         req.old = old;
         req.oldsize = oldsize;
         req.new = new;
         req.newsize = newsize;
-        result = bsdiff_internal(&mut req, opaque, malloc, write, free);
-        free(req.buffer as (*mut libc::c_void));
-        free(req.I as (*mut libc::c_void));
+        result = bsdiff_internal(&mut req, opaque, write);
+        libc::free(req.buffer as (*mut libc::c_void));
+        libc::free(req.I as (*mut libc::c_void));
         result
     }
 }
