@@ -28,15 +28,8 @@ pub unsafe extern "C" fn diff(
 ) -> diff_result {
     let mut buffer: Cursor<Vec<u8>> = Cursor::new(Vec::new());
 
-    let mut stream = bsdiff::bsdiff_stream {
-        opaque: mem::transmute(&mut buffer), // Cast to *mut c_void
-        malloc: libc::malloc,
-        free: libc::free,
-        write: diff_write,
-    };
-
     // Let it diff.
-    let status = bsdiff::bsdiff(old, oldsize as isize, new, newsize as isize, &mut stream as *mut bsdiff::bsdiff_stream);
+    let status = bsdiff::bsdiff(old, oldsize as isize, new, newsize as isize, &mut buffer, libc::malloc, libc::free, diff_write);
 
     if status == -1 {
         return diff_result { data: ptr::null(), length: 0 };
@@ -58,12 +51,11 @@ pub unsafe extern "C" fn diff(
 }
 
 unsafe extern "C" fn diff_write(
-    stream: *mut bsdiff::bsdiff_stream,
+    stream: &mut Cursor<Vec<u8>>,
     buffer: *const libc::c_void,
     size: libc::c_int,
 ) -> libc::c_int {
-    let mut cursor: &mut Cursor<Vec<u8>> = mem::transmute((*stream).opaque);
-    match cursor.write(slice::from_raw_parts(buffer as *const u8, size as usize)) {
+    match stream.write(slice::from_raw_parts(buffer as *const u8, size as usize)) {
         Ok(_) => 0,
         Err(_) => -1,
     }

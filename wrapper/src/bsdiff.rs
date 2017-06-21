@@ -391,23 +391,12 @@ unsafe fn offtout(mut x : isize, mut buf : *mut u8) {
     }
 }
 
-#[derive(Copy)]
-#[repr(C)]
-pub struct bsdiff_stream {
-    pub opaque : *mut libc::c_void,
-    pub malloc : unsafe extern fn(usize) -> *mut libc::c_void,
-    pub free : unsafe extern fn(*mut libc::c_void),
-    pub write : unsafe extern fn(*mut bsdiff_stream, *const libc::c_void, i32) -> i32,
-}
-
-impl Clone for bsdiff_stream {
-    fn clone(&self) -> Self { *self }
-}
-
-unsafe fn writedata(
-    mut stream : *mut bsdiff_stream,
+unsafe fn writedata<T>(
+    mut opaque : &mut T,
     mut buffer : *const libc::c_void,
-    mut length : isize
+    mut length : isize,
+    write: unsafe extern fn(&mut T, *const libc::c_void, i32) -> i32
+
 ) -> isize {
     let mut _currentBlock;
     let mut result : isize = 0isize;
@@ -425,8 +414,8 @@ unsafe fn writedata(
                }) as (i32);
         let writeresult
             : i32
-            = ((*stream).write)(
-                  stream as (*mut bsdiff_stream),
+            = write(
+                  opaque,
                   buffer,
                   smallsize
               );
@@ -443,23 +432,17 @@ unsafe fn writedata(
     if _currentBlock == 2 { result } else { -1isize }
 }
 
-#[derive(Copy)]
 #[repr(C)]
 struct bsdiff_request {
     pub old : *const u8,
     pub oldsize : isize,
     pub new : *const u8,
     pub newsize : isize,
-    pub stream : *mut bsdiff_stream,
     pub I : *mut isize,
     pub buffer : *mut u8,
 }
 
-impl Clone for bsdiff_request {
-    fn clone(&self) -> Self { *self }
-}
-
-unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
+unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request, opaque: &mut T, malloc: unsafe extern fn(usize) -> *mut libc::c_void, write: unsafe extern fn(&mut T, *const libc::c_void, i32) -> i32, free: unsafe extern fn(*mut libc::c_void)) -> i32 {
     let mut _currentBlock;
     let mut I : *mut isize;
     let mut V : *mut isize;
@@ -483,7 +466,7 @@ unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
     let mut buffer : *mut u8;
     let mut buf : [u8; 24] = [0; 24];
     if {
-           V = ((*req.stream).malloc)(
+           V = malloc(
                    ((req.oldsize + 1isize) as (usize)).wrapping_mul(
                        ::std::mem::size_of::<isize>()
                    )
@@ -494,7 +477,7 @@ unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
     } else {
         I = req.I;
         qsufsort(I,V,req.old,req.oldsize);
-        ((*req.stream).free)(V as (*mut libc::c_void));
+        free(V as (*mut libc::c_void));
         buffer = req.buffer;
         scan = 0isize;
         len = 0isize;
@@ -636,9 +619,10 @@ unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
                 buf.as_mut_ptr().offset(16isize)
             );
             if writedata(
-                   req.stream,
+                   opaque,
                    buf.as_mut_ptr() as (*const libc::c_void),
-                   ::std::mem::size_of::<[u8; 24]>() as (isize)
+                   ::std::mem::size_of::<[u8; 24]>() as (isize),
+                   write,
                ) != 0 {
                 _currentBlock = 36;
                 break;
@@ -654,9 +638,10 @@ unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
                 i = i + 1isize;
             }
             if writedata(
-                   req.stream,
+                   opaque,
                    buffer as (*const libc::c_void),
-                   lenf
+                   lenf,
+                   write
                ) != 0 {
                 _currentBlock = 33;
                 break;
@@ -670,9 +655,10 @@ unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
                 i = i + 1isize;
             }
             if writedata(
-                   req.stream,
+                   opaque,
                    buffer as (*const libc::c_void),
-                   scan - lenb - (lastscan + lenf)
+                   scan - lenb - (lastscan + lenf),
+                   write
                ) != 0 {
                 _currentBlock = 30;
                 break;
@@ -693,12 +679,15 @@ unsafe fn bsdiff_internal(req : bsdiff_request) -> i32 {
     }
 }
 
-pub unsafe fn bsdiff(
+pub unsafe fn bsdiff<T>(
     mut old : *const u8,
     mut oldsize : isize,
     mut new : *const u8,
     mut newsize : isize,
-    mut stream : *mut bsdiff_stream
+    mut opaque : &mut T,
+    malloc: unsafe extern fn(usize) -> *mut libc::c_void,
+    free: unsafe extern fn(*mut libc::c_void),
+    write: unsafe extern fn(&mut T, *const libc::c_void, i32) -> i32
 ) -> i32 {
     let mut result : i32;
     let mut req : bsdiff_request = bsdiff_request {
@@ -706,12 +695,11 @@ pub unsafe fn bsdiff(
         oldsize: 0,
         new: ptr::null(),
         newsize: 0,
-        stream: ptr::null_mut(),
         I: ptr::null_mut(),
         buffer: ptr::null_mut()
     };
     if {
-           req.I = ((*stream).malloc)(
+           req.I = malloc(
                        ((oldsize + 1isize) as (usize)).wrapping_mul(
                            ::std::mem::size_of::<isize>()
                        )
@@ -720,22 +708,21 @@ pub unsafe fn bsdiff(
        } == 0i32 as (*mut libc::c_void) as (*mut isize) {
         -1i32
     } else if {
-                  req.buffer = ((*stream).malloc)(
+                  req.buffer = malloc(
                                    (newsize + 1isize) as (usize)
                                ) as (*mut u8);
                   req.buffer
               } == 0i32 as (*mut libc::c_void) as (*mut u8) {
-        ((*stream).free)(req.I as (*mut libc::c_void));
+        free(req.I as (*mut libc::c_void));
         -1i32
     } else {
         req.old = old;
         req.oldsize = oldsize;
         req.new = new;
         req.newsize = newsize;
-        req.stream = stream;
-        result = bsdiff_internal(req);
-        ((*stream).free)(req.buffer as (*mut libc::c_void));
-        ((*stream).free)(req.I as (*mut libc::c_void));
+        result = bsdiff_internal(&mut req, opaque, malloc, write, free);
+        free(req.buffer as (*mut libc::c_void));
+        free(req.I as (*mut libc::c_void));
         result
     }
 }
