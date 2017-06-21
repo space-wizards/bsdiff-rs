@@ -1,0 +1,4 @@
+[root]
+name = "bsdiff_wrapper"
+version = "0.1.0"
+

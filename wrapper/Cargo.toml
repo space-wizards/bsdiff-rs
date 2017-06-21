@@ -1,0 +1,13 @@
+[package]
+name = "bsdiff_wrapper"
+version = "0.1.0"
+publish = false
+workspace = ".."
+
+[lib]
+name = "bsdiffwrapper"
+crate-type = ["dylib"]
+
+[dependencies]
+libc = "0.2.24"
+bzip2 = "0.3.2"
