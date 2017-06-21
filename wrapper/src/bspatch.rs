@@ -25,16 +25,70 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#[derive(Copy)]
-#[repr(C)]
-pub struct bspatch_stream {
-    pub opaque : *mut ::std::os::raw::c_void,
-    pub read : unsafe extern fn(*const bspatch_stream, *mut ::std::os::raw::c_void, i32) -> i32,
+use libc;
+
+pub unsafe fn bspatch<T>(
+    mut old : *const u8,
+    mut oldsize : i64,
+    mut new : *mut u8,
+    mut newsize : i64,
+    mut opaque : &mut T,
+    read: unsafe extern fn(&mut T, *mut libc::c_void, i32) -> i32
+) -> i32 {
+    let mut buf = [0u8; 8];
+    let mut oldpos = 0i64;
+    let mut newpos = 0i64;
+    let mut ctrl = [0i64; 3];
+
+    while newpos < newsize {
+        println!("{}, {}", newpos, newsize);
+        // Read control data
+        for i in 0..3 {
+            if read(opaque, buf.as_mut_ptr() as *mut libc::c_void, 8) != 0 {
+                return -1;
+            }
+            ctrl[i] = offtin(buf.as_mut_ptr()) as i64;
+        }
+
+        // Sanity-check
+        if newpos + ctrl[0] > newsize {
+            return -1;
+        }
+
+        // Read diff string
+        if read(opaque, new.offset(newpos as isize) as *mut libc::c_void, ctrl[0] as i32) != 0 {
+            return -1;
+        }
+
+        // Add old data to diff string
+        for i in 0..ctrl[0] {
+            if oldpos+1 > 0 && oldpos+i < oldsize {
+                *(new.offset(newpos as isize +i as isize)) += *(old.offset(oldpos as isize + i as isize));
+            }
+        }
+
+        // Adjust pointers
+        newpos += ctrl[0];
+        oldpos += ctrl[0];
+
+        // Sanity-check
+        if newpos + ctrl[1] > newsize {
+            return -1;
+        }
+
+        // Read extra string
+        if read(opaque, new.offset(newpos as isize) as *mut libc::c_void, ctrl[1] as i32) != 0 {
+            return -1;
+        }
+
+        // Adjust pointers
+        newpos += ctrl[1];
+        oldpos += ctrl[2];
+    }
+
+    0
 }
 
-impl Clone for bspatch_stream {
-    fn clone(&self) -> Self { *self }
-}
 
 unsafe fn offtin(mut buf : *mut u8) -> isize {
     let mut y : isize;
@@ -57,96 +111,4 @@ unsafe fn offtin(mut buf : *mut u8) -> isize {
         y = -y;
     }
     y
-}
-
-pub unsafe fn bspatch(
-    mut old : *const u8,
-    mut oldsize : isize,
-    mut new : *mut u8,
-    mut newsize : isize,
-    mut stream : *mut bspatch_stream
-) -> i32 {
-    let mut _currentBlock;
-    let mut buf : [u8; 8] = [0; 8];
-    let mut oldpos : isize;
-    let mut newpos : isize;
-    let mut ctrl : [isize; 3] = [0; 3];
-    let mut i : isize;
-    oldpos = 0isize;
-    newpos = 0isize;
-    'loop1: loop {
-        if !(newpos < newsize) {
-            _currentBlock = 2;
-            break;
-        }
-        i = 0isize;
-        'loop4: loop {
-            if !(i <= 2isize) {
-                break;
-            }
-            if ((*stream).read)(
-                   stream as (*const bspatch_stream),
-                   buf.as_mut_ptr() as (*mut ::std::os::raw::c_void),
-                   8i32
-               ) != 0 {
-                _currentBlock = 22;
-                break 'loop1;
-            }
-            ctrl[i as (usize)] = offtin(buf.as_mut_ptr());
-            i = i + 1isize;
-        }
-        if newpos + ctrl[0usize] > newsize {
-            _currentBlock = 18;
-            break;
-        }
-        if ((*stream).read)(
-               stream as (*const bspatch_stream),
-               new.offset(newpos) as (*mut ::std::os::raw::c_void),
-               ctrl[0usize] as (i32)
-           ) != 0 {
-            _currentBlock = 17;
-            break;
-        }
-        i = 0isize;
-        'loop8: loop {
-            if !(i < ctrl[0usize]) {
-                break;
-            }
-            if oldpos + i >= 0isize && (oldpos + i < oldsize) {
-                let _rhs = *old.offset(oldpos + i);
-                let _lhs = &mut *new.offset(newpos + i);
-                *_lhs = (*_lhs as (i32) + _rhs as (i32)) as (u8);
-            }
-            i = i + 1isize;
-        }
-        newpos = newpos + ctrl[0usize];
-        oldpos = oldpos + ctrl[0usize];
-        if newpos + ctrl[1usize] > newsize {
-            _currentBlock = 13;
-            break;
-        }
-        if ((*stream).read)(
-               stream as (*const bspatch_stream),
-               new.offset(newpos) as (*mut ::std::os::raw::c_void),
-               ctrl[1usize] as (i32)
-           ) != 0 {
-            _currentBlock = 12;
-            break;
-        }
-        newpos = newpos + ctrl[1usize];
-        oldpos = oldpos + ctrl[2usize];
-    }
-    if _currentBlock == 2 {
-        0i32
-    } else if _currentBlock == 12 {
-        -1i32
-    } else if _currentBlock == 13 {
-        -1i32
-    } else if _currentBlock == 17 {
-        -1i32
-    } else if _currentBlock == 18 {
-        -1i32
-    } else {
-        -1i32
-    }
 }
