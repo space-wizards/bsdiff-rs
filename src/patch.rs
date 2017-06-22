@@ -35,12 +35,13 @@ use std::io::Read;
 pub fn bspatch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
     where T: Read
 {
+    // I am more than well aware about the giant amounts of as operators for int casting.
     let mut buf = [0u8; 8];
-    let mut oldpos = 0usize;
-    let mut newpos = 0usize;
+    let mut oldpos = 0i64;
+    let mut newpos = 0i64;
     let mut ctrl = [0i64; 3];
 
-    while newpos < new.len() {
+    while newpos < new.len() as i64 {
         // Read control data
         for i in 0..3 {
             patch.read_exact(&mut buf)?;
@@ -53,31 +54,30 @@ pub fn bspatch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
         }
 
         // Read diff string
-        patch.read_exact(&mut new[newpos..newpos+ctrl[0] as usize])?;
+        patch.read_exact(&mut new[newpos as usize ..(newpos+ctrl[0]) as usize])?;
 
         // Add old data to diff string
-        for i in 0..ctrl[0] as usize {
-            if oldpos + 1 > 0 && oldpos + i < old.len() {
-                new[newpos + i] += old[oldpos + i];
+        for i in 0..ctrl[0] {
+            if oldpos + 1 > 0 && oldpos + i < old.len() as i64 {
+                new[(newpos + i) as usize] += old[(oldpos + i) as usize];
             }
         }
 
         // Adjust pointers
-        newpos += ctrl[0] as usize;
-        oldpos += ctrl[0] as usize;
+        newpos += ctrl[0];
+        oldpos += ctrl[0];
 
         // Sanity-check
-        if newpos + ctrl[1] as usize > new.len() {
+        if newpos + ctrl[1] > new.len() as i64 {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Output file too short."));
         }
 
         // Read extra string
-        patch.read_exact(&mut new[newpos..newpos+ctrl[1] as usize])?;
+        patch.read_exact(&mut new[newpos as usize ..(newpos+ctrl[1]) as usize])?;
 
         // Adjust pointers
-        newpos += ctrl[1] as usize;
-        println!("{}", ctrl[2]);
-        oldpos += ctrl[2] as usize;
+        newpos += ctrl[1];
+        oldpos += ctrl[2];
     }
 
     Ok(())
