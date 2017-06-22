@@ -2,6 +2,7 @@
 name = "bsdiff"
 version = "0.1.0"
 authors = ["pieterjan.briers@gmail.com"]
+description = "Rust port of the bsdiff binary diffing algorithm."
 readme = "README.md"
 keywords = ["bsdiff", "bspatch", "diff"]
 license = "BSD-2-Clause"
