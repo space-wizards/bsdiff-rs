@@ -27,19 +27,61 @@
  */
 
 use std::ptr;
+use std::io;
+use std::io::Write;
+use std::mem::size_of;
 use libc;
+
+pub fn diff<T>(mut old: &[u8],
+                 mut new: &[u8],
+                 mut writer: &mut T,
+                 write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32)
+                 -> io::Result<()>
+    where T: Write
+{
+    unsafe {
+
+        let I = libc::malloc((old.len() + 1).wrapping_mul(size_of::<isize>())) as *mut isize;
+        if I == ptr::null_mut() {
+            return Err(io::Error::new(io::ErrorKind::Other, "Failed to malloc I."));
+        }
+
+        let buffer = libc::malloc(new.len() + 1) as *mut u8;
+        if buffer == ptr::null_mut() {
+            libc::free(I as *mut libc::c_void);
+            return Err(io::Error::new(io::ErrorKind::Other, "Failed to malloc buffer."));
+        }
+
+        let mut req: bsdiff_request = bsdiff_request {
+            old: old.as_ptr(),
+            oldsize: old.len() as isize,
+            new: new.as_ptr(),
+            newsize: new.len() as isize,
+            I: I,
+            buffer: buffer,
+        };
+
+        let result = bsdiff_internal(&mut req, writer, write);
+        libc::free(req.buffer as (*mut libc::c_void));
+        libc::free(req.I as (*mut libc::c_void));
+
+        match result {
+            0 => Ok(()),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "Meh")),
+        }
+    }
+}
+
 
 extern "C" {
     fn memcmp(__s1: *const libc::c_void, __s2: *const libc::c_void, __n: usize) -> i32;
 }
 
-unsafe fn split(
-    mut I: *mut isize,
-    mut V: *mut isize,
-    mut start: isize,
-    mut len: isize,
-    mut h: isize,
-) {
+unsafe fn split(mut I: *mut isize,
+                mut V: *mut isize,
+                mut start: isize,
+                mut len: isize,
+                mut h: isize) {
     let mut i: isize;
     let mut j: isize;
     let mut k: isize;
@@ -206,11 +248,11 @@ unsafe fn qsufsort(mut I: *mut isize, mut V: *mut isize, mut old: *const u8, mut
             break;
         }
         *I.offset({
-            let _rhs = 1;
-            let _lhs = &mut buckets[*old.offset(i) as (usize)];
-            *_lhs = *_lhs + _rhs as (isize);
-            *_lhs
-        }) = i;
+                      let _rhs = 1;
+                      let _lhs = &mut buckets[*old.offset(i) as (usize)];
+                      *_lhs = *_lhs + _rhs as (isize);
+                      *_lhs
+                  }) = i;
         i = i + 1isize;
     }
     *I.offset(0isize) = oldsize;
@@ -273,12 +315,11 @@ unsafe fn qsufsort(mut I: *mut isize, mut V: *mut isize, mut old: *const u8, mut
     }
 }
 
-unsafe fn matchlen(
-    mut old: *const u8,
-    mut oldsize: isize,
-    mut new: *const u8,
-    mut newsize: isize,
-) -> isize {
+unsafe fn matchlen(mut old: *const u8,
+                   mut oldsize: isize,
+                   mut new: *const u8,
+                   mut newsize: isize)
+                   -> isize {
     let mut i: isize;
     i = 0isize;
     'loop1: loop {
@@ -293,31 +334,26 @@ unsafe fn matchlen(
     i
 }
 
-unsafe fn search(
-    mut I: *const isize,
-    mut old: *const u8,
-    mut oldsize: isize,
-    mut new: *const u8,
-    mut newsize: isize,
-    mut st: isize,
-    mut en: isize,
-    mut pos: *mut isize,
-) -> isize {
+unsafe fn search(mut I: *const isize,
+                 mut old: *const u8,
+                 mut oldsize: isize,
+                 mut new: *const u8,
+                 mut newsize: isize,
+                 mut st: isize,
+                 mut en: isize,
+                 mut pos: *mut isize)
+                 -> isize {
     let mut x: isize;
     let mut y: isize;
     if en - st < 2isize {
-        x = matchlen(
-            old.offset(*I.offset(st)),
-            oldsize - *I.offset(st),
-            new,
-            newsize,
-        );
-        y = matchlen(
-            old.offset(*I.offset(en)),
-            oldsize - *I.offset(en),
-            new,
-            newsize,
-        );
+        x = matchlen(old.offset(*I.offset(st)),
+                     oldsize - *I.offset(st),
+                     new,
+                     newsize);
+        y = matchlen(old.offset(*I.offset(en)),
+                     oldsize - *I.offset(en),
+                     new,
+                     newsize);
         (if x > y {
              *pos = *I.offset(st);
              x
@@ -327,16 +363,13 @@ unsafe fn search(
          })
     } else {
         x = st + (en - st) / 2isize;
-        (if memcmp(
-            old.offset(*I.offset(x)) as (*const libc::c_void),
-            new as (*const libc::c_void),
-            if oldsize - *I.offset(x) < newsize {
-                oldsize - *I.offset(x)
-            } else {
-                newsize
-            } as (usize),
-        ) < 0i32
-        {
+        (if memcmp(old.offset(*I.offset(x)) as (*const libc::c_void),
+                   new as (*const libc::c_void),
+                   if oldsize - *I.offset(x) < newsize {
+                       oldsize - *I.offset(x)
+                   } else {
+                       newsize
+                   } as (usize)) < 0i32 {
              search(I, old, oldsize, new, newsize, x, en, pos)
          } else {
              search(I, old, oldsize, new, newsize, st, x, pos)
@@ -380,12 +413,11 @@ unsafe fn offtout(mut x: isize, mut buf: *mut u8) {
     }
 }
 
-unsafe fn writedata<T>(
-    mut opaque: &mut T,
-    mut buffer: *const libc::c_void,
-    mut length: isize,
-    write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32,
-) -> isize {
+unsafe fn writedata<T>(mut opaque: &mut T,
+                       mut buffer: *const libc::c_void,
+                       mut length: isize,
+                       write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32)
+                       -> isize {
     let mut _currentBlock;
     let mut result: isize = 0isize;
     'loop1: loop {
@@ -420,11 +452,10 @@ struct bsdiff_request {
     pub buffer: *mut u8,
 }
 
-unsafe fn bsdiff_internal<T>(
-    req: &mut bsdiff_request,
-    opaque: &mut T,
-    write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32
-) -> i32 {
+unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
+                             opaque: &mut T,
+                             write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32)
+                             -> i32 {
     let mut _currentBlock;
     let mut I: *mut isize;
     let mut V: *mut isize;
@@ -448,12 +479,11 @@ unsafe fn bsdiff_internal<T>(
     let mut buffer: *mut u8;
     let mut buf: [u8; 24] = [0; 24];
     if {
-        V = libc::malloc(
-            ((req.oldsize + 1isize) as (usize)).wrapping_mul(::std::mem::size_of::<isize>()),
-        ) as (*mut isize);
-        V
-    } == 0i32 as (*mut libc::c_void) as (*mut isize)
-    {
+           V = libc::malloc(((req.oldsize + 1isize) as (usize))
+                                .wrapping_mul(::std::mem::size_of::<isize>())) as
+               (*mut isize);
+           V
+       } == 0i32 as (*mut libc::c_void) as (*mut isize) {
         -1i32
     } else {
         I = req.I;
@@ -480,24 +510,21 @@ unsafe fn bsdiff_internal<T>(
                 if !(scan < req.newsize) {
                     break;
                 }
-                len = search(
-                    I as (*const isize),
-                    req.old,
-                    req.oldsize,
-                    req.new.offset(scan),
-                    req.newsize - scan,
-                    0isize,
-                    req.oldsize,
-                    &mut pos as (*mut isize),
-                );
+                len = search(I as (*const isize),
+                             req.old,
+                             req.oldsize,
+                             req.new.offset(scan),
+                             req.newsize - scan,
+                             0isize,
+                             req.oldsize,
+                             &mut pos as (*mut isize));
                 'loop7: loop {
                     if !(scsc < scan + len) {
                         break;
                     }
                     if scsc + lastoffset < req.oldsize &&
-                        (*req.old.offset(scsc + lastoffset) as (i32) ==
-                             *req.new.offset(scsc) as (i32))
-                    {
+                       (*req.old.offset(scsc + lastoffset) as (i32) ==
+                        *req.new.offset(scsc) as (i32)) {
                         oldscore = oldscore + 1isize;
                     }
                     scsc = scsc + 1isize;
@@ -506,9 +533,7 @@ unsafe fn bsdiff_internal<T>(
                     break;
                 }
                 if scan + lastoffset < req.oldsize &&
-                    (*req.old.offset(scan + lastoffset) as (i32) ==
-                        *req.new.offset(scan) as (i32))
-                {
+                   (*req.old.offset(scan + lastoffset) as (i32) == *req.new.offset(scan) as (i32)) {
                     oldscore = oldscore - 1isize;
                 }
                 scan = scan + 1isize;
@@ -564,13 +589,11 @@ unsafe fn bsdiff_internal<T>(
                         break;
                     }
                     if *req.new.offset(lastscan + lenf - overlap + i) as (i32) ==
-                        *req.old.offset(lastpos + lenf - overlap + i) as (i32)
-                    {
+                       *req.old.offset(lastpos + lenf - overlap + i) as (i32) {
                         s = s + 1isize;
                     }
                     if *req.new.offset(scan - lenb + i) as (i32) ==
-                        *req.old.offset(pos - lenb + i) as (i32)
-                    {
+                       *req.old.offset(pos - lenb + i) as (i32) {
                         s = s - 1isize;
                     }
                     if s > Ss {
@@ -583,21 +606,14 @@ unsafe fn bsdiff_internal<T>(
                 lenb = lenb - lens;
             }
             offtout(lenf, buf.as_mut_ptr());
-            offtout(
-                scan - lenb - (lastscan + lenf),
-                buf.as_mut_ptr().offset(8isize),
-            );
-            offtout(
-                pos - lenb - (lastpos + lenf),
-                buf.as_mut_ptr().offset(16isize),
-            );
-            if writedata(
-                opaque,
-                buf.as_mut_ptr() as (*const libc::c_void),
-                ::std::mem::size_of::<[u8; 24]>() as (isize),
-                write,
-            ) != 0
-            {
+            offtout(scan - lenb - (lastscan + lenf),
+                    buf.as_mut_ptr().offset(8isize));
+            offtout(pos - lenb - (lastpos + lenf),
+                    buf.as_mut_ptr().offset(16isize));
+            if writedata(opaque,
+                         buf.as_mut_ptr() as (*const libc::c_void),
+                         ::std::mem::size_of::<[u8; 24]>() as (isize),
+                         write) != 0 {
                 _currentBlock = 36;
                 break;
             }
@@ -607,8 +623,8 @@ unsafe fn bsdiff_internal<T>(
                     break;
                 }
                 *buffer.offset(i) = (*req.new.offset(lastscan + i) as (i32) -
-                                         *req.old.offset(lastpos + i) as (i32)) as
-                    (u8);
+                                     *req.old.offset(lastpos + i) as (i32)) as
+                                    (u8);
                 i = i + 1isize;
             }
             if writedata(opaque, buffer as (*const libc::c_void), lenf, write) != 0 {
@@ -623,13 +639,10 @@ unsafe fn bsdiff_internal<T>(
                 *buffer.offset(i) = *req.new.offset(lastscan + lenf + i);
                 i = i + 1isize;
             }
-            if writedata(
-                opaque,
-                buffer as (*const libc::c_void),
-                scan - lenb - (lastscan + lenf),
-                write,
-            ) != 0
-            {
+            if writedata(opaque,
+                         buffer as (*const libc::c_void),
+                         scan - lenb - (lastscan + lenf),
+                         write) != 0 {
                 _currentBlock = 30;
                 break;
             }
@@ -640,55 +653,11 @@ unsafe fn bsdiff_internal<T>(
         (if _currentBlock == 3 {
              0i32
          } else if _currentBlock == 30 {
-             -1i32
-         } else if _currentBlock == 33 {
-             -1i32
-         } else {
-             -1i32
-         })
-    }
-}
-
-pub unsafe fn bsdiff<T>(
-    mut old: *const u8,
-    mut oldsize: isize,
-    mut new: *const u8,
-    mut newsize: isize,
-    mut opaque: &mut T,
-    write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32,
-) -> i32 {
-    let mut result: i32;
-    let mut req: bsdiff_request = bsdiff_request {
-        old: ptr::null(),
-        oldsize: 0,
-        new: ptr::null(),
-        newsize: 0,
-        I: ptr::null_mut(),
-        buffer: ptr::null_mut(),
-    };
-    if {
-        req.I = libc::malloc(
-            ((oldsize + 1isize) as (usize)).wrapping_mul(::std::mem::size_of::<isize>()),
-        ) as (*mut isize);
-        req.I
-    } == 0i32 as (*mut libc::c_void) as (*mut isize)
-    {
-        -1i32
-    } else if {
-               req.buffer = libc::malloc((newsize + 1isize) as (usize)) as (*mut u8);
-               req.buffer
-           } == 0i32 as (*mut libc::c_void) as (*mut u8)
-    {
-        libc::free(req.I as (*mut libc::c_void));
-        -1i32
-    } else {
-        req.old = old;
-        req.oldsize = oldsize;
-        req.new = new;
-        req.newsize = newsize;
-        result = bsdiff_internal(&mut req, opaque, write);
-        libc::free(req.buffer as (*mut libc::c_void));
-        libc::free(req.I as (*mut libc::c_void));
-        result
+            -1i32
+        } else if _currentBlock == 33 {
+            -1i32
+        } else {
+            -1i32
+        })
     }
 }

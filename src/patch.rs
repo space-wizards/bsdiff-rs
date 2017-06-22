@@ -32,7 +32,7 @@ use std::io::Read;
 /// Apply a patch to a set of bytes.
 /// `old` is the old file, `patch` is a `Read` with the patch, `new` is the buffer that will be written into.
 /// `new` must be large enough to store the resulting file. You should probably store the size of the patched file somewhere when diffing the files.
-pub fn bspatch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
+pub fn patch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
     where T: Read
 {
     // I am more than well aware about the giant amounts of as operators for int casting.
@@ -58,8 +58,11 @@ pub fn bspatch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
 
         // Add old data to diff string
         for i in 0..ctrl[0] {
-            if oldpos + 1 > 0 && oldpos + i < old.len() as i64 {
-                new[(newpos + i) as usize] += old[(oldpos + i) as usize];
+            if oldpos + i >= 0 && oldpos + i < old.len() as i64 {
+                let a = new[(newpos + i) as usize];
+                let b = old[(oldpos + i) as usize];
+                let c = a.wrapping_add(b);
+                new[(newpos + i) as usize] = c;
             }
         }
 
