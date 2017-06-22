@@ -21,7 +21,7 @@ fn test_it() {
     File::open("tests/expected_diff").unwrap().read_to_end(&mut expected).unwrap();
 
     let mut cursor = Cursor::new(Vec::new());
-    diff::diff(&one, &two, &mut cursor, test_write).unwrap();
+    diff::diff(&one, &two, &mut cursor).unwrap();
 
     assert!(&expected == cursor.get_ref());
 
@@ -30,13 +30,4 @@ fn test_it() {
     let mut patched = vec![0; two.len()];
     patch::patch(&one, &mut cursor, &mut patched).unwrap();
     assert!(patched == two);
-}
-
-unsafe extern "C" fn test_write(writer: &mut Cursor<Vec<u8>>, buffer: *const libc::c_void,
-    size: libc::c_int,
-) -> libc::c_int {
-    match writer.write(slice::from_raw_parts(buffer as *mut u8, size as usize)) {
-        Ok(x) => if x == size as usize {0} else {-1},
-        Err(_) => -1 
-    }
 }

@@ -30,12 +30,12 @@ use std::ptr;
 use std::io;
 use std::io::Write;
 use std::mem::size_of;
+use std::slice;
 use libc;
 
 pub fn diff<T>(mut old: &[u8],
                  mut new: &[u8],
-                 mut writer: &mut T,
-                 write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32)
+                 mut writer: &mut T)
                  -> io::Result<()>
     where T: Write
 {
@@ -61,14 +61,11 @@ pub fn diff<T>(mut old: &[u8],
             buffer: buffer,
         };
 
-        let result = bsdiff_internal(&mut req, writer, write);
+        let result = bsdiff_internal(&mut req, writer);
         libc::free(req.buffer as (*mut libc::c_void));
         libc::free(req.I as (*mut libc::c_void));
 
-        match result {
-            0 => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "Meh")),
-        }
+        result
     }
 }
 
@@ -413,33 +410,11 @@ unsafe fn offtout(mut x: isize, mut buf: *mut u8) {
     }
 }
 
-unsafe fn writedata<T>(mut opaque: &mut T,
+unsafe fn writedata<T>(mut writer: &mut T,
                        mut buffer: *const libc::c_void,
-                       mut length: isize,
-                       write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32)
-                       -> isize {
-    let mut _currentBlock;
-    let mut result: isize = 0isize;
-    'loop1: loop {
-        if !(length > 0isize) {
-            _currentBlock = 2;
-            break;
-        }
-        let smallsize: i32 = (if length < 0x7fffffffisize {
-                                  length
-                              } else {
-                                  0x7fffffffisize
-                              }) as (i32);
-        let writeresult: i32 = write(opaque, buffer, smallsize);
-        if writeresult == -1i32 {
-            _currentBlock = 5;
-            break;
-        }
-        result = result + writeresult as (isize);
-        length = length - smallsize as (isize);
-        buffer = (buffer as (*mut u8)).offset(smallsize as (isize)) as (*const libc::c_void);
-    }
-    if _currentBlock == 2 { result } else { -1isize }
+                       mut length: isize)
+                       -> io::Result<()> where T: Write {
+    writer.write_all(&slice::from_raw_parts(buffer as *mut u8, length as usize))
 }
 
 #[repr(C)]
@@ -453,10 +428,8 @@ struct bsdiff_request {
 }
 
 unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
-                             opaque: &mut T,
-                             write: unsafe extern "C" fn(&mut T, *const libc::c_void, i32) -> i32)
-                             -> i32 {
-    let mut _currentBlock;
+                             writer: &mut T)
+                             -> io::Result<()> where T: Write {
     let mut I: *mut isize;
     let mut V: *mut isize;
     let mut scan: isize;
@@ -478,186 +451,166 @@ unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
     let mut i: isize;
     let mut buffer: *mut u8;
     let mut buf: [u8; 24] = [0; 24];
-    if {
-           V = libc::malloc(((req.oldsize + 1isize) as (usize))
-                                .wrapping_mul(::std::mem::size_of::<isize>())) as
-               (*mut isize);
-           V
-       } == 0i32 as (*mut libc::c_void) as (*mut isize) {
-        -1i32
-    } else {
-        I = req.I;
-        qsufsort(I, V, req.old, req.oldsize);
-        libc::free(V as (*mut libc::c_void));
-        buffer = req.buffer;
-        scan = 0isize;
-        len = 0isize;
-        pos = 0isize;
-        lastscan = 0isize;
-        lastpos = 0isize;
-        lastoffset = 0isize;
-        'loop2: loop {
+
+    V = libc::malloc((req.oldsize as usize + 1) * size_of::<isize>()) as *mut isize;
+                                
+               
+    if V == ptr::null_mut() {
+        return Err(io::Error::new(io::ErrorKind::Other, "Failed to allocate V."));
+    }
+    I = req.I;
+    qsufsort(I, V, req.old, req.oldsize);
+    libc::free(V as (*mut libc::c_void));
+    buffer = req.buffer;
+    scan = 0isize;
+    len = 0isize;
+    pos = 0isize;
+    lastscan = 0isize;
+    lastpos = 0isize;
+    lastoffset = 0isize;
+    'loop2: loop {
+        if !(scan < req.newsize) {
+            break;
+        }
+        oldscore = 0isize;
+        scsc = {
+            scan = scan + len;
+            scan
+        };
+        'loop5: loop {
             if !(scan < req.newsize) {
-                _currentBlock = 3;
                 break;
             }
-            oldscore = 0isize;
-            scsc = {
-                scan = scan + len;
-                scan
-            };
-            'loop5: loop {
-                if !(scan < req.newsize) {
+            len = search(I as (*const isize),
+                            req.old,
+                            req.oldsize,
+                            req.new.offset(scan),
+                            req.newsize - scan,
+                            0isize,
+                            req.oldsize,
+                            &mut pos as (*mut isize));
+            'loop7: loop {
+                if !(scsc < scan + len) {
                     break;
                 }
-                len = search(I as (*const isize),
-                             req.old,
-                             req.oldsize,
-                             req.new.offset(scan),
-                             req.newsize - scan,
-                             0isize,
-                             req.oldsize,
-                             &mut pos as (*mut isize));
-                'loop7: loop {
-                    if !(scsc < scan + len) {
-                        break;
-                    }
-                    if scsc + lastoffset < req.oldsize &&
-                       (*req.old.offset(scsc + lastoffset) as (i32) ==
-                        *req.new.offset(scsc) as (i32)) {
-                        oldscore = oldscore + 1isize;
-                    }
-                    scsc = scsc + 1isize;
+                if scsc + lastoffset < req.oldsize &&
+                    (*req.old.offset(scsc + lastoffset) as (i32) ==
+                    *req.new.offset(scsc) as (i32)) {
+                    oldscore = oldscore + 1isize;
                 }
-                if len == oldscore && (len != 0isize) || len > oldscore + 8isize {
-                    break;
-                }
-                if scan + lastoffset < req.oldsize &&
-                   (*req.old.offset(scan + lastoffset) as (i32) == *req.new.offset(scan) as (i32)) {
-                    oldscore = oldscore - 1isize;
-                }
-                scan = scan + 1isize;
+                scsc = scsc + 1isize;
             }
-            if !(len != oldscore || scan == req.newsize) {
+            if len == oldscore && (len != 0isize) || len > oldscore + 8isize {
+                break;
+            }
+            if scan + lastoffset < req.oldsize &&
+                (*req.old.offset(scan + lastoffset) as (i32) == *req.new.offset(scan) as (i32)) {
+                oldscore = oldscore - 1isize;
+            }
+            scan = scan + 1isize;
+        }
+        if !(len != oldscore || scan == req.newsize) {
+            continue;
+        }
+        s = 0isize;
+        Sf = 0isize;
+        lenf = 0isize;
+        i = 0isize;
+        'loop14: loop {
+            if !(lastscan + i < scan && (lastpos + i < req.oldsize)) {
+                break;
+            }
+            if *req.old.offset(lastpos + i) as (i32) == *req.new.offset(lastscan + i) as (i32) {
+                s = s + 1isize;
+            }
+            i = i + 1isize;
+            if !(s * 2isize - i > Sf * 2isize - lenf) {
                 continue;
             }
+            Sf = s;
+            lenf = i;
+        }
+        lenb = 0isize;
+        if scan < req.newsize {
             s = 0isize;
-            Sf = 0isize;
-            lenf = 0isize;
-            i = 0isize;
-            'loop14: loop {
-                if !(lastscan + i < scan && (lastpos + i < req.oldsize)) {
+            Sb = 0isize;
+            i = 1isize;
+            'loop17: loop {
+                if !(scan >= lastscan + i && (pos >= i)) {
                     break;
                 }
-                if *req.old.offset(lastpos + i) as (i32) == *req.new.offset(lastscan + i) as (i32) {
+                if *req.old.offset(pos - i) as (i32) == *req.new.offset(scan - i) as (i32) {
                     s = s + 1isize;
                 }
-                i = i + 1isize;
-                if !(s * 2isize - i > Sf * 2isize - lenf) {
-                    continue;
+                if s * 2isize - i > Sb * 2isize - lenb {
+                    Sb = s;
+                    lenb = i;
                 }
-                Sf = s;
-                lenf = i;
-            }
-            lenb = 0isize;
-            if scan < req.newsize {
-                s = 0isize;
-                Sb = 0isize;
-                i = 1isize;
-                'loop17: loop {
-                    if !(scan >= lastscan + i && (pos >= i)) {
-                        break;
-                    }
-                    if *req.old.offset(pos - i) as (i32) == *req.new.offset(scan - i) as (i32) {
-                        s = s + 1isize;
-                    }
-                    if s * 2isize - i > Sb * 2isize - lenb {
-                        Sb = s;
-                        lenb = i;
-                    }
-                    i = i + 1isize;
-                }
-            }
-            if lastscan + lenf > scan - lenb {
-                overlap = lastscan + lenf - (scan - lenb);
-                s = 0isize;
-                Ss = 0isize;
-                lens = 0isize;
-                i = 0isize;
-                'loop20: loop {
-                    if !(i < overlap) {
-                        break;
-                    }
-                    if *req.new.offset(lastscan + lenf - overlap + i) as (i32) ==
-                       *req.old.offset(lastpos + lenf - overlap + i) as (i32) {
-                        s = s + 1isize;
-                    }
-                    if *req.new.offset(scan - lenb + i) as (i32) ==
-                       *req.old.offset(pos - lenb + i) as (i32) {
-                        s = s - 1isize;
-                    }
-                    if s > Ss {
-                        Ss = s;
-                        lens = i + 1isize;
-                    }
-                    i = i + 1isize;
-                }
-                lenf = lenf + (lens - overlap);
-                lenb = lenb - lens;
-            }
-            offtout(lenf, buf.as_mut_ptr());
-            offtout(scan - lenb - (lastscan + lenf),
-                    buf.as_mut_ptr().offset(8isize));
-            offtout(pos - lenb - (lastpos + lenf),
-                    buf.as_mut_ptr().offset(16isize));
-            if writedata(opaque,
-                         buf.as_mut_ptr() as (*const libc::c_void),
-                         ::std::mem::size_of::<[u8; 24]>() as (isize),
-                         write) != 0 {
-                _currentBlock = 36;
-                break;
-            }
-            i = 0isize;
-            'loop24: loop {
-                if !(i < lenf) {
-                    break;
-                }
-                *buffer.offset(i) = (*req.new.offset(lastscan + i) as (i32) -
-                                     *req.old.offset(lastpos + i) as (i32)) as
-                                    (u8);
                 i = i + 1isize;
             }
-            if writedata(opaque, buffer as (*const libc::c_void), lenf, write) != 0 {
-                _currentBlock = 33;
-                break;
-            }
-            i = 0isize;
-            'loop27: loop {
-                if !(i < scan - lenb - (lastscan + lenf)) {
-                    break;
-                }
-                *buffer.offset(i) = *req.new.offset(lastscan + lenf + i);
-                i = i + 1isize;
-            }
-            if writedata(opaque,
-                         buffer as (*const libc::c_void),
-                         scan - lenb - (lastscan + lenf),
-                         write) != 0 {
-                _currentBlock = 30;
-                break;
-            }
-            lastscan = scan - lenb;
-            lastpos = pos - lenb;
-            lastoffset = pos - scan;
         }
-        (if _currentBlock == 3 {
-             0i32
-         } else if _currentBlock == 30 {
-            -1i32
-        } else if _currentBlock == 33 {
-            -1i32
-        } else {
-            -1i32
-        })
+        if lastscan + lenf > scan - lenb {
+            overlap = lastscan + lenf - (scan - lenb);
+            s = 0isize;
+            Ss = 0isize;
+            lens = 0isize;
+            i = 0isize;
+            'loop20: loop {
+                if !(i < overlap) {
+                    break;
+                }
+                if *req.new.offset(lastscan + lenf - overlap + i) as (i32) ==
+                    *req.old.offset(lastpos + lenf - overlap + i) as (i32) {
+                    s = s + 1isize;
+                }
+                if *req.new.offset(scan - lenb + i) as (i32) ==
+                    *req.old.offset(pos - lenb + i) as (i32) {
+                    s = s - 1isize;
+                }
+                if s > Ss {
+                    Ss = s;
+                    lens = i + 1isize;
+                }
+                i = i + 1isize;
+            }
+            lenf = lenf + (lens - overlap);
+            lenb = lenb - lens;
+        }
+        offtout(lenf, buf.as_mut_ptr());
+        offtout(scan - lenb - (lastscan + lenf),
+                buf.as_mut_ptr().offset(8isize));
+        offtout(pos - lenb - (lastpos + lenf),
+                buf.as_mut_ptr().offset(16isize));
+        writedata(writer,
+                        buf.as_mut_ptr() as (*const libc::c_void),
+                        ::std::mem::size_of::<[u8; 24]>() as (isize))?;
+        i = 0isize;
+        'loop24: loop {
+            if !(i < lenf) {
+                break;
+            }
+            *buffer.offset(i) = (*req.new.offset(lastscan + i) as (i32) -
+                                    *req.old.offset(lastpos + i) as (i32)) as
+                                (u8);
+            i = i + 1isize;
+        }
+        writedata(writer, buffer as (*const libc::c_void), lenf)?;
+        i = 0isize;
+        'loop27: loop {
+            if !(i < scan - lenb - (lastscan + lenf)) {
+                break;
+            }
+            *buffer.offset(i) = *req.new.offset(lastscan + lenf + i);
+            i = i + 1isize;
+        }
+        writedata(writer,
+                        buffer as (*const libc::c_void),
+                        scan - lenb - (lastscan + lenf))?;
+
+        lastscan = scan - lenb;
+        lastpos = pos - lenb;
+        lastoffset = pos - scan;
     }
+    
+    Ok(())
 }
