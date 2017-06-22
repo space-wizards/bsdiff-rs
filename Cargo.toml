@@ -1,9 +1,10 @@
 [package]
 name = "bsdiff"
 version = "0.1.0"
-publish = false
+authors = ["pieterjan.briers@gmail.com"]
+readme = "README.md"
+keywords = ["bsdiff", "bspatch", "diff"]
+license = "BSD-2-Clause"
 
 [dependencies]
 libc = "0.2.24"
-bzip2 = "0.3.2"
-byteorder = "1.0.0"

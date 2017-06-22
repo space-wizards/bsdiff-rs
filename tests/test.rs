@@ -4,8 +4,7 @@ extern crate libc;
 use bsdiff::patch;
 use bsdiff::diff;
 
-use std::slice;
-use std::io::{Cursor, Write, Read};
+use std::io::{Cursor, Read};
 use std::fs::File;
 
 #[test]
