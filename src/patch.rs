@@ -29,8 +29,9 @@
 use std::io;
 use std::io::Read;
 
-/// Apply a patch to a set of bytes.
-/// `old` is the old file, `patch` is a `Read` with the patch, `new` is the buffer that will be written into.
+/// Apply a patch to an "old" file, returning the "new" file.
+/// 
+/// `old` is the old file, `patch` will be read from with the patch,`new` is the buffer that will be written into.
 /// `new` must be large enough to store the resulting file. You should probably store the size of the patched file somewhere when diffing the files.
 pub fn patch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
     where T: Read

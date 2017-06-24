@@ -33,6 +33,10 @@ use std::mem::size_of;
 use std::slice;
 use libc;
 
+/// Diff an "old" and a "new" file, returning a patch.
+///
+/// The patch can be applied to the "old" file to return the new file, with `patch::patch()`.
+/// `old` and `new` correspond to the "old" and "new" file respectively. The patch will be written into `writer`.
 pub fn diff<T>(mut old: &[u8],
                  mut new: &[u8],
                  mut writer: &mut T)
