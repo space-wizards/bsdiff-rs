@@ -1,1 +1,1 @@
-# ss14.shared.bsdiff-rs
+# bsdiff-rs
