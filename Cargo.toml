@@ -6,6 +6,8 @@ description = "Rust port of the bsdiff binary diffing algorithm."
 readme = "README.md"
 keywords = ["bsdiff", "bspatch", "diff"]
 license = "BSD-2-Clause"
+homepage = "https://github.com/space-wizards/bsdiff-rs"
+repository = "https://github.com/space-wizards/bsdiff-rs"
 
 [dependencies]
 libc = "0.2.24"
