@@ -26,10 +26,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-use std::ptr;
 use std::io;
 use std::io::Write;
-use std::mem::size_of;
 use std::slice;
 use libc;
 
@@ -43,34 +41,19 @@ pub fn diff<T>(mut old: &[u8],
                  -> io::Result<()>
     where T: Write
 {
-    unsafe {
+    let mut I = vec![0;old.len()+1];
+    let mut buffer = vec![0;new.len()+1];
 
-        let I = libc::malloc((old.len() + 1).wrapping_mul(size_of::<isize>())) as *mut isize;
-        if I == ptr::null_mut() {
-            return Err(io::Error::new(io::ErrorKind::Other, "Failed to malloc I."));
-        }
+    let mut req: bsdiff_request = bsdiff_request {
+        old: old.as_ptr(),
+        oldsize: old.len() as isize,
+        new: new.as_ptr(),
+        newsize: new.len() as isize,
+        I: I.as_mut_ptr(),
+        buffer: buffer.as_mut_ptr(),
+    };
 
-        let buffer = libc::malloc(new.len() + 1) as *mut u8;
-        if buffer == ptr::null_mut() {
-            libc::free(I as *mut libc::c_void);
-            return Err(io::Error::new(io::ErrorKind::Other, "Failed to malloc buffer."));
-        }
-
-        let mut req: bsdiff_request = bsdiff_request {
-            old: old.as_ptr(),
-            oldsize: old.len() as isize,
-            new: new.as_ptr(),
-            newsize: new.len() as isize,
-            I: I,
-            buffer: buffer,
-        };
-
-        let result = bsdiff_internal(&mut req, writer);
-        libc::free(req.buffer as (*mut libc::c_void));
-        libc::free(req.I as (*mut libc::c_void));
-
-        result
-    }
+    unsafe { bsdiff_internal(&mut req, writer) }
 }
 
 
@@ -79,7 +62,7 @@ extern "C" {
 }
 
 unsafe fn split(mut I: *mut isize,
-                mut V: *mut isize,
+                mut V: &mut [isize],
                 mut start: isize,
                 mut len: isize,
                 mut h: isize) {
@@ -97,17 +80,17 @@ unsafe fn split(mut I: *mut isize,
                 break;
             }
             j = 1isize;
-            x = *V.offset(*I.offset(k) + h);
+            x = V[(*I.offset(k) + h) as usize];
             i = 1isize;
             'loop34: loop {
                 if !(k + i < start + len) {
                     break;
                 }
-                if *V.offset(*I.offset(k + i) + h) < x {
-                    x = *V.offset(*I.offset(k + i) + h);
+                if V[(*I.offset(k + i) + h) as usize] < x {
+                    x = V[(*I.offset(k + i) + h) as usize];
                     j = 0isize;
                 }
-                if *V.offset(*I.offset(k + i) + h) == x {
+                if V[(*I.offset(k + i) + h) as usize] == x {
                     tmp = *I.offset(k + j);
                     *I.offset(k + j) = *I.offset(k + i);
                     *I.offset(k + i) = tmp;
@@ -120,7 +103,7 @@ unsafe fn split(mut I: *mut isize,
                 if !(i < j) {
                     break;
                 }
-                *V.offset(*I.offset(k + i)) = k + j - 1isize;
+                V[*I.offset(k + i) as usize] = k + j - 1isize;
                 i = i + 1isize;
             }
             if j == 1isize {
@@ -129,7 +112,7 @@ unsafe fn split(mut I: *mut isize,
             k = k + j;
         }
     } else {
-        x = *V.offset(*I.offset(start + len / 2isize) + h);
+        x = V[(*I.offset(start + len / 2isize) + h) as usize];
         jj = 0isize;
         kk = 0isize;
         i = start;
@@ -137,10 +120,10 @@ unsafe fn split(mut I: *mut isize,
             if !(i < start + len) {
                 break;
             }
-            if *V.offset(*I.offset(i) + h) < x {
+            if V[(*I.offset(i) + h) as usize] < x {
                 jj = jj + 1isize;
             }
-            if *V.offset(*I.offset(i) + h) == x {
+            if V[(*I.offset(i) + h) as usize] == x {
                 kk = kk + 1isize;
             }
             i = i + 1isize;
@@ -154,9 +137,9 @@ unsafe fn split(mut I: *mut isize,
             if !(i < jj) {
                 break;
             }
-            if *V.offset(*I.offset(i) + h) < x {
+            if V[(*I.offset(i) + h) as usize] < x {
                 i = i + 1isize;
-            } else if *V.offset(*I.offset(i) + h) == x {
+            } else if V[(*I.offset(i) + h) as usize] == x {
                 tmp = *I.offset(i);
                 *I.offset(i) = *I.offset(jj + j);
                 *I.offset(jj + j) = tmp;
@@ -172,7 +155,7 @@ unsafe fn split(mut I: *mut isize,
             if !(jj + j < kk) {
                 break;
             }
-            if *V.offset(*I.offset(jj + j) + h) == x {
+            if V[(*I.offset(jj + j) + h) as usize] == x {
                 j = j + 1isize;
             } else {
                 tmp = *I.offset(jj + j);
@@ -189,7 +172,7 @@ unsafe fn split(mut I: *mut isize,
             if !(i < kk - jj) {
                 break;
             }
-            *V.offset(*I.offset(jj + i)) = kk - 1isize;
+            V[*I.offset(jj + i) as usize] = kk - 1isize;
             i = i + 1isize;
         }
         if jj == kk - 1isize {
@@ -201,7 +184,7 @@ unsafe fn split(mut I: *mut isize,
     }
 }
 
-unsafe fn qsufsort(mut I: *mut isize, mut V: *mut isize, mut old: *const u8, mut oldsize: isize) {
+unsafe fn qsufsort(mut I: *mut isize, mut V: &mut [isize], mut old: *const u8, mut oldsize: isize) {
     let mut buckets: [isize; 256] = [0; 256];
     let mut i: isize;
     let mut h: isize;
@@ -262,10 +245,10 @@ unsafe fn qsufsort(mut I: *mut isize, mut V: *mut isize, mut old: *const u8, mut
         if !(i < oldsize) {
             break;
         }
-        *V.offset(i) = buckets[*old.offset(i) as (usize)];
+        V[i as usize] = buckets[*old.offset(i) as (usize)];
         i = i + 1isize;
     }
-    *V.offset(oldsize) = 0isize;
+    V[oldsize as usize] = 0isize;
     i = 1isize;
     'loop13: loop {
         if !(i < 256isize) {
@@ -295,7 +278,7 @@ unsafe fn qsufsort(mut I: *mut isize, mut V: *mut isize, mut old: *const u8, mut
                 if len != 0 {
                     *I.offset(i - len) = -len;
                 }
-                len = *V.offset(*I.offset(i)) + 1isize - i;
+                len = V[*I.offset(i) as usize] + 1isize - i;
                 split(I, V, i, len, h);
                 i = i + len;
                 len = 0isize;
@@ -311,7 +294,7 @@ unsafe fn qsufsort(mut I: *mut isize, mut V: *mut isize, mut old: *const u8, mut
         if !(i < oldsize + 1isize) {
             break;
         }
-        *I.offset(*V.offset(i)) = i;
+        *I.offset(V[i as usize]) = i;
         i = i + 1isize;
     }
 }
@@ -434,8 +417,6 @@ struct bsdiff_request {
 unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
                              writer: &mut T)
                              -> io::Result<()> where T: Write {
-    let mut I: *mut isize;
-    let mut V: *mut isize;
     let mut scan: isize;
     let mut pos: isize;
     let mut len: isize;
@@ -456,15 +437,11 @@ unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
     let mut buffer: *mut u8;
     let mut buf: [u8; 24] = [0; 24];
 
-    V = libc::malloc((req.oldsize as usize + 1) * size_of::<isize>()) as *mut isize;
-                                
-               
-    if V == ptr::null_mut() {
-        return Err(io::Error::new(io::ErrorKind::Other, "Failed to allocate V."));
+    {
+        let mut V = vec![0isize; (req.oldsize+1) as usize];
+        qsufsort(req.I, &mut V, req.old, req.oldsize);
     }
-    I = req.I;
-    qsufsort(I, V, req.old, req.oldsize);
-    libc::free(V as (*mut libc::c_void));
+
     buffer = req.buffer;
     scan = 0isize;
     len = 0isize;
@@ -485,7 +462,7 @@ unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
             if !(scan < req.newsize) {
                 break;
             }
-            len = search(I as (*const isize),
+            len = search(req.I as (*const isize),
                             req.old,
                             req.oldsize,
                             req.new.offset(scan),
