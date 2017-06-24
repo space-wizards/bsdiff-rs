@@ -4,7 +4,7 @@ extern crate libc;
 use bsdiff::patch;
 use bsdiff::diff;
 
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, ErrorKind};
 use std::fs::File;
 
 #[test]
@@ -29,4 +29,19 @@ fn test_it() {
     let mut patched = vec![0; two.len()];
     patch::patch(&one, &mut cursor, &mut patched).unwrap();
     assert!(patched == two);
+}
+
+#[test]
+fn test_too_small() {
+    let one = vec![1, 2, 3];
+    let two = [1, 2, 3, 4];
+    let mut cursor = Cursor::new(Vec::new());
+
+    diff::diff(&one, &two, &mut cursor).unwrap();
+    cursor.set_position(0);
+
+    let mut patched = vec![0, 3];
+    let error = patch::patch(&one, &mut cursor, &mut patched).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
 }
