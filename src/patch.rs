@@ -2,6 +2,7 @@
  * Copyright 2003-2005 Colin Percival
  * Copyright 2012 Matthew Endsley
  * Modified 2017 Pieter-Jan Briers
+ * Modified 2021 Kornel Lesinski
  * All rights reserved
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+use std::convert::TryInto;
 use std::io;
 use std::io::Read;
 
@@ -33,98 +35,58 @@ use std::io::Read;
 /// 
 /// `old` is the old file, `patch` will be read from with the patch,`new` is the buffer that will be written into.
 /// `new` must be large enough to store the resulting file. You should probably store the size of the patched file somewhere when diffing the files.
-pub fn patch<T>(old: &[u8], patch: &mut T, new: &mut [u8]) -> io::Result<()>
+pub fn patch<T>(old: &[u8], patch: &mut T, mut new: &mut [u8]) -> io::Result<()>
     where T: Read
 {
-    // I am more than well aware about the giant amounts of as operators for int casting.
-    let mut buf = [0u8; 8];
-    let mut oldpos = 0i64;
-    let mut newpos = 0i64;
-    let mut ctrl = [0i64; 3];
+    let mut oldpos = 0;
 
-    while newpos < new.len() as i64 {
+    while !new.is_empty() {
         // Read control data
-        for i in 0..3 {
-            patch.read_exact(&mut buf)?;
-            ctrl[i] = offtin(&buf);
-        }
+        let mut buf = [0u8; 24];
+        patch.read_exact(&mut buf)?;
+        // only seek can be negative
+        let mixlen = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
+        let copylen = u64::from_le_bytes(buf[8..16].try_into().unwrap()) as usize;
+        let seeklen = offtin(buf[16..24].try_into().unwrap());
 
-        // Sanity-check
-        if newpos as i64 + ctrl[0] > new.len() as i64 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Output file too short."));
+        // oldpos needs to be checked before the for loop to optimize it better
+        if mixlen > new.len() || oldpos > old.len() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
         }
-
+        let (mix, rest) = new.split_at_mut(mixlen);
         // Read diff string
-        patch.read_exact(&mut new[newpos as usize ..(newpos+ctrl[0]) as usize])?;
+        patch.read_exact(mix)?;
 
-        // Add old data to diff string
-        for i in 0..ctrl[0] {
-            if oldpos + i >= 0 && oldpos + i < old.len() as i64 {
-                let a = new[(newpos + i) as usize];
-                let b = old[(oldpos + i) as usize];
-                let c = a.wrapping_add(b);
-                new[(newpos + i) as usize] = c;
-            }
+        for (n, o) in mix.iter_mut().zip(&old[oldpos..]) {
+            *n = n.wrapping_add(*o);
         }
 
         // Adjust pointers
-        newpos += ctrl[0];
-        oldpos += ctrl[0];
+        new = rest;
+        oldpos += mixlen;
 
-        // Sanity-check
-        if newpos + ctrl[1] > new.len() as i64 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Output file too short."));
+        if copylen > new.len() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
         }
-
-        // Read extra string
-        patch.read_exact(&mut new[newpos as usize ..(newpos+ctrl[1]) as usize])?;
+        let (copy, rest) = new.split_at_mut(copylen);
+        patch.read_exact(copy)?;
 
         // Adjust pointers
-        newpos += ctrl[1];
-        oldpos += ctrl[2];
+        new = rest;
+        oldpos = (oldpos as i64 + seeklen) as usize;
     }
 
     Ok(())
 }
 
-fn offtin(buf: &[u8]) -> i64 {
-    let mut y;
-    y = (buf[7] as (i32) & 0x7Fi32) as (i64);
-    y = y * 256;
-    y = y + buf[6] as (i64);
-    y = y * 256;
-    y = y + buf[5] as (i64);
-    y = y * 256;
-    y = y + buf[4] as (i64);
-    y = y * 256;
-    y = y + buf[3] as (i64);
-    y = y * 256;
-    y = y + buf[2] as (i64);
-    y = y * 256;
-    y = y + buf[1] as (i64);
-    y = y * 256;
-    y = y + buf[0] as (i64);
-    if buf[7] as (i32) & 0x80i32 != 0 {
-        y = -y;
-    }
-    y
-}
 
-/*
-fn offtin(buf: &[u8]) -> i64 {
-    let mut y;
-    y = (buf[7] & 0x7F) as (i64);
-    for x in (0..7).rev() {
-        y *= 256;
-        y += buf[x] as (i64);
-    }
-
-    println!("{:X}", buf[7]);
-
-    if buf[7] as i32 & 0x80 != 0 {
-        -y
-    } else {
+/// Reads sign-magnitude i64 little-endian
+#[inline]
+fn offtin(buf: [u8; 8]) -> i64 {
+    let y = i64::from_le_bytes(buf);
+    if 0 == y & (1<<63) {
         y
+    } else {
+        -(y & !(1<<63))
     }
 }
-*/
