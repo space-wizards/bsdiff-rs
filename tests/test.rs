@@ -1,6 +1,3 @@
-extern crate bsdiff;
-extern crate libc;
-
 use bsdiff::patch;
 use bsdiff::diff;
 

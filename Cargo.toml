@@ -1,16 +1,11 @@
 [package]
 name = "bsdiff"
 version = "0.1.4"
-authors = ["pieterjan.briers@gmail.com"]
+authors = ["pieterjan.briers@gmail.com", "Kornel <kornel@geekhood.net>"]
 description = "Rust port of the bsdiff binary diffing algorithm."
 readme = "README.md"
 keywords = ["bsdiff", "bspatch", "diff"]
 license = "BSD-2-Clause"
 homepage = "https://github.com/space-wizards/bsdiff-rs"
 repository = "https://github.com/space-wizards/bsdiff-rs"
-
-[dependencies]
-libc = "0.2.24"
-
-[badges]
-travis-ci = { repository = "space-wizards/bsdiff-rs" }
+edition = "2018"
