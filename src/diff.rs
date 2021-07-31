@@ -28,155 +28,91 @@
 
 use std::io;
 use std::io::Write;
-use std::slice;
-use libc;
 
 /// Diff an "old" and a "new" file, returning a patch.
 ///
 /// The patch can be applied to the "old" file to return the new file, with `patch::patch()`.
 /// `old` and `new` correspond to the "old" and "new" file respectively. The patch will be written into `writer`.
-pub fn diff<T>(mut old: &[u8],
-                 mut new: &[u8],
-                 mut writer: &mut T)
-                 -> io::Result<()>
-    where T: Write
-{
-    let mut I = vec![0;old.len()+1];
-    let mut buffer = vec![0;new.len()+1];
-
-    let mut req: bsdiff_request = bsdiff_request {
-        old: old.as_ptr(),
-        oldsize: old.len() as isize,
-        new: new.as_ptr(),
-        newsize: new.len() as isize,
-        I: I.as_mut_ptr(),
-        buffer: buffer.as_mut_ptr(),
-    };
-
-    unsafe { bsdiff_internal(&mut req, writer) }
+pub fn diff<T: Write>(old: &[u8], new: &[u8], writer: &mut T) -> io::Result<()> {
+    bsdiff_internal(old, new, writer)
 }
 
-
-extern "C" {
-    fn memcmp(__s1: *const libc::c_void, __s2: *const libc::c_void, __n: usize) -> i32;
+#[inline]
+fn usz(i: isize) -> usize {
+    debug_assert!(i >= 0);
+    i as usize
 }
 
-unsafe fn split(mut I: *mut isize,
-                mut V: &mut [isize],
-                mut start: isize,
-                mut len: isize,
-                mut h: isize) {
-    let mut i: isize;
-    let mut j: isize;
-    let mut k: isize;
-    let mut x: isize;
-    let mut tmp: isize;
-    let mut jj: isize;
-    let mut kk: isize;
-    if len < 16isize {
-        k = start;
-        'loop31: loop {
-            if !(k < start + len) {
-                break;
-            }
-            j = 1isize;
-            x = V[(*I.offset(k) + h) as usize];
-            i = 1isize;
-            'loop34: loop {
-                if !(k + i < start + len) {
-                    break;
+fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
+    if len < 16 {
+        let mut k = start;
+        while k < start + len {
+            let mut j = 1;
+            let mut x = V[usz(I[k] + h as isize)];
+            let mut i = 1;
+            while k + i < start + len {
+                if V[usz(I[k + i] + h as isize)] < x {
+                    x = V[usz(I[k + i] + h as isize)];
+                    j = 0;
                 }
-                if V[(*I.offset(k + i) + h) as usize] < x {
-                    x = V[(*I.offset(k + i) + h) as usize];
-                    j = 0isize;
+                if V[usz(I[k + i] + h as isize)] == x {
+                    I.swap(k + j, k + i);
+                    j += 1;
                 }
-                if V[(*I.offset(k + i) + h) as usize] == x {
-                    tmp = *I.offset(k + j);
-                    *I.offset(k + j) = *I.offset(k + i);
-                    *I.offset(k + i) = tmp;
-                    j = j + 1isize;
-                }
-                i = i + 1isize;
+                i += 1;
             }
-            i = 0isize;
-            'loop36: loop {
-                if !(i < j) {
-                    break;
-                }
-                V[*I.offset(k + i) as usize] = k + j - 1isize;
-                i = i + 1isize;
+            for i in 0..j {
+                V[usz(I[k + i])] = k as isize + j as isize - 1;
             }
-            if j == 1isize {
-                *I.offset(k) = -1isize;
+            if j == 1 {
+                I[k] = -1;
             }
-            k = k + j;
+            k += j;
         }
     } else {
-        x = V[(*I.offset(start + len / 2isize) + h) as usize];
-        jj = 0isize;
-        kk = 0isize;
-        i = start;
-        'loop2: loop {
-            if !(i < start + len) {
-                break;
+        let x = V[usz(I[start + len / 2] + h as isize)];
+        let mut jj = 0;
+        let mut kk = 0;
+        for i in start..start + len {
+            if V[usz(I[i] + h as isize)] < x {
+                jj += 1;
             }
-            if V[(*I.offset(i) + h) as usize] < x {
-                jj = jj + 1isize;
-            }
-            if V[(*I.offset(i) + h) as usize] == x {
-                kk = kk + 1isize;
-            }
-            i = i + 1isize;
-        }
-        jj = jj + start;
-        kk = kk + jj;
-        i = start;
-        j = 0isize;
-        k = 0isize;
-        'loop4: loop {
-            if !(i < jj) {
-                break;
-            }
-            if V[(*I.offset(i) + h) as usize] < x {
-                i = i + 1isize;
-            } else if V[(*I.offset(i) + h) as usize] == x {
-                tmp = *I.offset(i);
-                *I.offset(i) = *I.offset(jj + j);
-                *I.offset(jj + j) = tmp;
-                j = j + 1isize;
-            } else {
-                tmp = *I.offset(i);
-                *I.offset(i) = *I.offset(kk + k);
-                *I.offset(kk + k) = tmp;
-                k = k + 1isize;
+            if V[usz(I[i] + h as isize)] == x {
+                kk += 1;
             }
         }
-        'loop5: loop {
-            if !(jj + j < kk) {
-                break;
-            }
-            if V[(*I.offset(jj + j) + h) as usize] == x {
-                j = j + 1isize;
+        let jj = jj + start;
+        let kk = kk + jj;
+        let mut j = 0;
+        let mut k = 0;
+        let mut i = start;
+        while i < jj {
+            if V[usz(I[i] + h as isize)] < x {
+                i += 1;
+            } else if V[usz(I[i] + h as isize)] == x {
+                I.swap(i, jj + j);
+                j += 1;
             } else {
-                tmp = *I.offset(jj + j);
-                *I.offset(jj + j) = *I.offset(kk + k);
-                *I.offset(kk + k) = tmp;
-                k = k + 1isize;
+                I.swap(i, kk + k);
+                k += 1;
+            }
+        }
+        while jj + j < kk {
+            if V[usz(I[jj + j] + h as isize)] == x {
+                j += 1;
+            } else {
+                I.swap(jj + j, kk + k);
+                k += 1;
             }
         }
         if jj > start {
             split(I, V, start, jj - start, h);
         }
-        i = 0isize;
-        'loop9: loop {
-            if !(i < kk - jj) {
-                break;
-            }
-            V[*I.offset(jj + i) as usize] = kk - 1isize;
-            i = i + 1isize;
+        for i in 0..kk - jj {
+            V[usz(I[jj + i])] = kk as isize - 1;
         }
-        if jj == kk - 1isize {
-            *I.offset(jj) = -1isize;
+        if jj == kk - 1 {
+            I[jj] = -1;
         }
         if start + len > kk {
             split(I, V, kk, start + len - kk, h);
@@ -184,414 +120,216 @@ unsafe fn split(mut I: *mut isize,
     }
 }
 
-unsafe fn qsufsort(mut I: *mut isize, mut V: &mut [isize], mut old: *const u8, mut oldsize: isize) {
+fn qsufsort(I: &mut [isize], V: &mut [isize], old: &[u8]) {
     let mut buckets: [isize; 256] = [0; 256];
-    let mut i: isize;
-    let mut h: isize;
-    let mut len: isize;
-    i = 0isize;
-    'loop1: loop {
-        if !(i < 256isize) {
-            break;
-        }
-        buckets[i as (usize)] = 0isize;
-        i = i + 1isize;
+    for i in 0..old.len() {
+        buckets[old[i] as usize] += 1;
     }
-    i = 0isize;
-    'loop3: loop {
-        if !(i < oldsize) {
-            break;
-        }
-        let _rhs = 1;
-        let _lhs = &mut buckets[*old.offset(i) as (usize)];
-        *_lhs = *_lhs + _rhs as (isize);
-        i = i + 1isize;
+    for i in 1..256 {
+        buckets[i] += buckets[i - 1];
     }
-    i = 1isize;
-    'loop5: loop {
-        if !(i < 256isize) {
-            break;
-        }
-        let _rhs = buckets[(i - 1isize) as (usize)];
-        let _lhs = &mut buckets[i as (usize)];
-        *_lhs = *_lhs + _rhs;
-        i = i + 1isize;
+    let mut i = 255;
+    while i > 0 {
+        buckets[i] = buckets[i - 1];
+        i -= 1;
     }
-    i = 255isize;
-    'loop7: loop {
-        if !(i > 0isize) {
-            break;
-        }
-        buckets[i as (usize)] = buckets[(i - 1isize) as (usize)];
-        i = i - 1isize;
+    buckets[0] = 0;
+    for i in 0..old.len() {
+        buckets[old[i] as usize] += 1;
+        I[usz(buckets[old[i] as usize])] = i as isize;
     }
-    buckets[0usize] = 0isize;
-    i = 0isize;
-    'loop9: loop {
-        if !(i < oldsize) {
-            break;
-        }
-        *I.offset({
-                      let _rhs = 1;
-                      let _lhs = &mut buckets[*old.offset(i) as (usize)];
-                      *_lhs = *_lhs + _rhs as (isize);
-                      *_lhs
-                  }) = i;
-        i = i + 1isize;
+    I[0] = old.len() as isize;
+    for i in 0..old.len() {
+        V[i] = buckets[old[i] as usize];
     }
-    *I.offset(0isize) = oldsize;
-    i = 0isize;
-    'loop11: loop {
-        if !(i < oldsize) {
-            break;
+    V[old.len()] = 0;
+    for i in 1..256 {
+        if buckets[i] == buckets[i - 1] + 1 {
+            I[usz(buckets[i])] = -1;
         }
-        V[i as usize] = buckets[*old.offset(i) as (usize)];
-        i = i + 1isize;
     }
-    V[oldsize as usize] = 0isize;
-    i = 1isize;
-    'loop13: loop {
-        if !(i < 256isize) {
-            break;
-        }
-        if buckets[i as (usize)] == buckets[(i - 1isize) as (usize)] + 1isize {
-            *I.offset(buckets[i as (usize)]) = -1isize;
-        }
-        i = i + 1isize;
-    }
-    *I.offset(0isize) = -1isize;
-    h = 1isize;
-    'loop15: loop {
-        if !(*I.offset(0isize) != -(oldsize + 1isize)) {
-            break;
-        }
-        len = 0isize;
-        i = 0isize;
-        'loop22: loop {
-            if !(i < oldsize + 1isize) {
-                break;
-            }
-            if *I.offset(i) < 0isize {
-                len = len - *I.offset(i);
-                i = i - *I.offset(i);
+    I[0] = -1;
+    let mut h = 1;
+    while I[0] != -(old.len() as isize + 1) {
+        let mut len = 0;
+        let mut i = 0;
+        while i < old.len() as isize + 1 {
+            if I[usz(i)] < 0 {
+                len -= I[usz(i)];
+                i = i - I[usz(i)];
             } else {
                 if len != 0 {
-                    *I.offset(i - len) = -len;
+                    I[usz(i - len)] = -len;
                 }
-                len = V[*I.offset(i) as usize] + 1isize - i;
-                split(I, V, i, len, h);
-                i = i + len;
-                len = 0isize;
+                len = V[usz(I[usz(i)])] + 1 - i;
+                split(I, V, usz(i), usz(len), h);
+                i += len;
+                len = 0;
             }
         }
         if len != 0 {
-            *I.offset(i - len) = -len;
+            I[usz(i - len)] = -len;
         }
         h = h + h;
     }
-    i = 0isize;
-    'loop17: loop {
-        if !(i < oldsize + 1isize) {
-            break;
-        }
-        *I.offset(V[i as usize]) = i;
-        i = i + 1isize;
+    for i in 0..old.len() + 1 {
+        I[usz(V[i])] = i as isize;
     }
 }
 
-unsafe fn matchlen(mut old: *const u8,
-                   mut oldsize: isize,
-                   mut new: *const u8,
-                   mut newsize: isize)
-                   -> isize {
-    let mut i: isize;
-    i = 0isize;
-    'loop1: loop {
-        if !(i < oldsize && (i < newsize)) {
-            break;
-        }
-        if *old.offset(i) as (i32) != *new.offset(i) as (i32) {
-            break;
-        }
-        i = i + 1isize;
-    }
-    i
+fn matchlen(old: &[u8], new: &[u8]) -> usize {
+    old.iter().zip(new).take_while(|(a, b)| a == b).count()
 }
 
-unsafe fn search(mut I: *const isize,
-                 mut old: *const u8,
-                 mut oldsize: isize,
-                 mut new: *const u8,
-                 mut newsize: isize,
-                 mut st: isize,
-                 mut en: isize,
-                 mut pos: *mut isize)
-                 -> isize {
-    let mut x: isize;
-    let mut y: isize;
-    if en - st < 2isize {
-        x = matchlen(old.offset(*I.offset(st)),
-                     oldsize - *I.offset(st),
-                     new,
-                     newsize);
-        y = matchlen(old.offset(*I.offset(en)),
-                     oldsize - *I.offset(en),
-                     new,
-                     newsize);
-        (if x > y {
-             *pos = *I.offset(st);
-             x
-         } else {
-             *pos = *I.offset(en);
-             y
-         })
+fn search(I: &[isize], old: &[u8], new: &[u8], st: usize, en: usize) -> (isize, usize) {
+    if en < 2 + st {
+        let x = matchlen(&old[usz(I[st])..], new);
+        let y = matchlen(&old[usz(I[en])..], new);
+        if x > y {
+            (I[st], x)
+        } else {
+            (I[en], y)
+        }
     } else {
-        x = st + (en - st) / 2isize;
-        (if memcmp(old.offset(*I.offset(x)) as (*const libc::c_void),
-                   new as (*const libc::c_void),
-                   if oldsize - *I.offset(x) < newsize {
-                       oldsize - *I.offset(x)
-                   } else {
-                       newsize
-                   } as (usize)) < 0i32 {
-             search(I, old, oldsize, new, newsize, x, en, pos)
-         } else {
-             search(I, old, oldsize, new, newsize, st, x, pos)
-         })
-    }
-}
-
-unsafe fn offtout(mut x: isize, mut buf: *mut u8) {
-    let mut y: isize;
-    if x < 0isize {
-        y = -x;
-    } else {
-        y = x;
-    }
-    *buf.offset(0isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(0isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(1isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(1isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(2isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(2isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(3isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(3isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(4isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(4isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(5isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(5isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(6isize) = (y % 256isize) as (u8);
-    y = y - *buf.offset(6isize) as (isize);
-    y = y / 256isize;
-    *buf.offset(7isize) = (y % 256isize) as (u8);
-    if x < 0isize {
-        let _rhs = 0x80i32;
-        let _lhs = &mut *buf.offset(7isize);
-        *_lhs = (*_lhs as (i32) | _rhs) as (u8);
-    }
-}
-
-unsafe fn writedata<T>(mut writer: &mut T,
-                       mut buffer: *const libc::c_void,
-                       mut length: isize)
-                       -> io::Result<()> where T: Write {
-    writer.write_all(&slice::from_raw_parts(buffer as *mut u8, length as usize))
-}
-
-#[repr(C)]
-struct bsdiff_request {
-    pub old: *const u8,
-    pub oldsize: isize,
-    pub new: *const u8,
-    pub newsize: isize,
-    pub I: *mut isize,
-    pub buffer: *mut u8,
-}
-
-unsafe fn bsdiff_internal<T>(req: &mut bsdiff_request,
-                             writer: &mut T)
-                             -> io::Result<()> where T: Write {
-    let mut scan: isize;
-    let mut pos: isize;
-    let mut len: isize;
-    let mut lastscan: isize;
-    let mut lastpos: isize;
-    let mut lastoffset: isize;
-    let mut oldscore: isize;
-    let mut scsc: isize;
-    let mut s: isize;
-    let mut Sf: isize;
-    let mut lenf: isize;
-    let mut Sb: isize;
-    let mut lenb: isize;
-    let mut overlap: isize;
-    let mut Ss: isize;
-    let mut lens: isize;
-    let mut i: isize;
-    let mut buffer: *mut u8;
-    let mut buf: [u8; 24] = [0; 24];
-
-    {
-        let mut V = vec![0isize; (req.oldsize+1) as usize];
-        qsufsort(req.I, &mut V, req.old, req.oldsize);
-    }
-
-    buffer = req.buffer;
-    scan = 0isize;
-    len = 0isize;
-    pos = 0isize;
-    lastscan = 0isize;
-    lastpos = 0isize;
-    lastoffset = 0isize;
-    'loop2: loop {
-        if !(scan < req.newsize) {
-            break;
+        let x = usz(st as isize + (en as isize - st as isize) / 2);
+        let left = &old[usz(I[x])..];
+        let right = new;
+        let len_to_check = left.len().min(right.len());
+        if left[..len_to_check] < right[..len_to_check] {
+            search(I, old, new, x, en)
+        } else {
+            search(I, old, new, st, x)
         }
-        oldscore = 0isize;
-        scsc = {
-            scan = scan + len;
-            scan
-        };
-        'loop5: loop {
-            if !(scan < req.newsize) {
+    }
+}
+
+#[inline]
+fn offtout(x: isize, buf: &mut [u8]) {
+    if x >= 0 {
+        buf.copy_from_slice(&x.to_le_bytes());
+    } else {
+        let tmp = (-x) as usize | (1 << 63);
+        buf.copy_from_slice(&tmp.to_le_bytes());
+    }
+}
+
+fn bsdiff_internal(old: &[u8], new: &[u8], writer: &mut dyn Write) -> io::Result<()> {
+    let mut I = vec![0; old.len() + 1];
+    let mut buffer = vec![0; new.len() + 1];
+    let mut V = vec![0; old.len() + 1];
+    qsufsort(&mut I, &mut V, old);
+
+    let mut scan = 0;
+    let mut len = 0usize;
+    let mut pos = 0usize;
+    let mut lastscan = 0;
+    let mut lastpos = 0;
+    let mut lastoffset = 0isize;
+    while scan < new.len() {
+        let mut oldscore = 0;
+        scan += len;
+        let mut scsc = scan;
+        while scan < new.len() {
+            let (p, l) = search(&I, old, &new[scan..], 0, old.len());
+            pos = usz(p);
+            len = l;
+            while scsc < scan + len {
+                if scsc as isize + lastoffset < old.len() as _
+                    && (old[usz(scsc as isize + lastoffset)] == new[scsc])
+                {
+                    oldscore += 1;
+                }
+                scsc += 1;
+            }
+            if len == oldscore && (len != 0) || len > oldscore + 8 {
                 break;
             }
-            len = search(req.I as (*const isize),
-                            req.old,
-                            req.oldsize,
-                            req.new.offset(scan),
-                            req.newsize - scan,
-                            0isize,
-                            req.oldsize,
-                            &mut pos as (*mut isize));
-            'loop7: loop {
-                if !(scsc < scan + len) {
-                    break;
-                }
-                if scsc + lastoffset < req.oldsize &&
-                    (*req.old.offset(scsc + lastoffset) as (i32) ==
-                    *req.new.offset(scsc) as (i32)) {
-                    oldscore = oldscore + 1isize;
-                }
-                scsc = scsc + 1isize;
+            if scan as isize + lastoffset < old.len() as _
+                && (old[usz(scan as isize + lastoffset)] == new[scan])
+            {
+                oldscore -= 1;
             }
-            if len == oldscore && (len != 0isize) || len > oldscore + 8isize {
-                break;
-            }
-            if scan + lastoffset < req.oldsize &&
-                (*req.old.offset(scan + lastoffset) as (i32) == *req.new.offset(scan) as (i32)) {
-                oldscore = oldscore - 1isize;
-            }
-            scan = scan + 1isize;
+            scan += 1;
         }
-        if !(len != oldscore || scan == req.newsize) {
+        if !(len != oldscore || scan == new.len()) {
             continue;
         }
-        s = 0isize;
-        Sf = 0isize;
-        lenf = 0isize;
-        i = 0isize;
-        'loop14: loop {
-            if !(lastscan + i < scan && (lastpos + i < req.oldsize)) {
-                break;
+        let mut s = 0;
+        let mut Sf = 0;
+        let mut lenf = 0usize;
+        let mut i = 0usize;
+        while lastscan + i < scan && (lastpos + i < old.len() as _) {
+            if old[lastpos + i] == new[lastscan + i] {
+                s += 1;
             }
-            if *req.old.offset(lastpos + i) as (i32) == *req.new.offset(lastscan + i) as (i32) {
-                s = s + 1isize;
-            }
-            i = i + 1isize;
-            if !(s * 2isize - i > Sf * 2isize - lenf) {
+            i += 1;
+            if s * 2 - i as isize <= Sf * 2 - lenf as isize {
                 continue;
             }
             Sf = s;
             lenf = i;
         }
-        lenb = 0isize;
-        if scan < req.newsize {
-            s = 0isize;
-            Sb = 0isize;
-            i = 1isize;
-            'loop17: loop {
-                if !(scan >= lastscan + i && (pos >= i)) {
-                    break;
+        let mut lenb = 0;
+        if scan < new.len() {
+            let mut s = 0isize;
+            let mut Sb = 0;
+            let mut i = 1;
+            while scan >= lastscan + i && (pos >= i) {
+                if old[pos - i] == new[scan - i] {
+                    s += 1;
                 }
-                if *req.old.offset(pos - i) as (i32) == *req.new.offset(scan - i) as (i32) {
-                    s = s + 1isize;
-                }
-                if s * 2isize - i > Sb * 2isize - lenb {
+                if s * 2 - i as isize > Sb * 2 - lenb as isize {
                     Sb = s;
                     lenb = i;
                 }
-                i = i + 1isize;
+                i += 1;
             }
         }
         if lastscan + lenf > scan - lenb {
-            overlap = lastscan + lenf - (scan - lenb);
-            s = 0isize;
-            Ss = 0isize;
-            lens = 0isize;
-            i = 0isize;
-            'loop20: loop {
-                if !(i < overlap) {
-                    break;
+            let overlap = lastscan + lenf - (scan - lenb);
+            let mut s = 0;
+            let mut Ss = 0;
+            let mut lens = 0;
+            for i in 0..overlap {
+                if new[lastscan + lenf - overlap + i] == old[lastpos + lenf - overlap + i] {
+                    s += 1;
                 }
-                if *req.new.offset(lastscan + lenf - overlap + i) as (i32) ==
-                    *req.old.offset(lastpos + lenf - overlap + i) as (i32) {
-                    s = s + 1isize;
-                }
-                if *req.new.offset(scan - lenb + i) as (i32) ==
-                    *req.old.offset(pos - lenb + i) as (i32) {
-                    s = s - 1isize;
+                if new[scan - lenb + i] == old[pos - lenb + i] {
+                    s -= 1;
                 }
                 if s > Ss {
                     Ss = s;
-                    lens = i + 1isize;
+                    lens = i + 1;
                 }
-                i = i + 1isize;
             }
-            lenf = lenf + (lens - overlap);
-            lenb = lenb - lens;
+            lenf = lenf + lens - overlap;
+            lenb -= lens;
         }
-        offtout(lenf, buf.as_mut_ptr());
-        offtout(scan - lenb - (lastscan + lenf),
-                buf.as_mut_ptr().offset(8isize));
-        offtout(pos - lenb - (lastpos + lenf),
-                buf.as_mut_ptr().offset(16isize));
-        writedata(writer,
-                        buf.as_mut_ptr() as (*const libc::c_void),
-                        ::std::mem::size_of::<[u8; 24]>() as (isize))?;
-        i = 0isize;
-        'loop24: loop {
-            if !(i < lenf) {
-                break;
-            }
-            *buffer.offset(i) = (*req.new.offset(lastscan + i) as (i32) -
-                                    *req.old.offset(lastpos + i) as (i32)) as
-                                (u8);
-            i = i + 1isize;
+        let mut buf: [u8; 24] = [0; 24];
+        offtout(lenf as _, &mut buf[..8]);
+        offtout(
+            scan as isize - lenb as isize - (lastscan + lenf) as isize,
+            &mut buf[8..16],
+        );
+        offtout(
+            pos as isize - lenb as isize - (lastpos + lenf) as isize,
+            &mut buf[16..24],
+        );
+        writer.write_all(&buf[..24])?;
+
+        for i in 0..lenf {
+            buffer[i] = new[lastscan + i].wrapping_sub(old[lastpos + i]);
         }
-        writedata(writer, buffer as (*const libc::c_void), lenf)?;
-        i = 0isize;
-        'loop27: loop {
-            if !(i < scan - lenb - (lastscan + lenf)) {
-                break;
-            }
-            *buffer.offset(i) = *req.new.offset(lastscan + lenf + i);
-            i = i + 1isize;
+        writer.write_all(&buffer[..lenf])?;
+        for i in 0..scan - lenb - (lastscan + lenf) {
+            buffer[i] = new[lastscan + lenf + i];
         }
-        writedata(writer,
-                        buffer as (*const libc::c_void),
-                        scan - lenb - (lastscan + lenf))?;
+        writer.write_all(&buffer[..(scan - lenb - (lastscan + lenf))])?;
 
         lastscan = scan - lenb;
         lastpos = pos - lenb;
-        lastoffset = pos - scan;
+        lastoffset = pos as isize - scan as isize;
     }
-    
+
     Ok(())
 }

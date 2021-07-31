@@ -20,8 +20,7 @@
 //! patch::patch(&one, &mut cursor, &mut patched).unwrap();
 //! assert_eq!(patched, two);
 //! ```
-extern crate libc;
 
-#[allow(dead_code, unused_mut, non_snake_case)]
+#[allow(non_snake_case)]
 pub mod diff;
 pub mod patch;
