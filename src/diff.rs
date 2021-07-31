@@ -61,8 +61,8 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
                 }
                 i += 1;
             }
-            for i in 0..j {
-                V[usz(I[k + i])] = k as isize + j as isize - 1;
+            for &Ii in &I[k..k + j] {
+                V[usz(Ii)] = k as isize + j as isize - 1;
             }
             if j == 1 {
                 I[k] = -1;
@@ -73,11 +73,11 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
         let x = V[usz(I[start + len / 2] + h as isize)];
         let mut jj = 0;
         let mut kk = 0;
-        for i in start..start + len {
-            if V[usz(I[i] + h as isize)] < x {
+        for &Ii in &I[start..start + len] {
+            if V[usz(Ii + h as isize)] < x {
                 jj += 1;
             }
-            if V[usz(I[i] + h as isize)] == x {
+            if V[usz(Ii + h as isize)] == x {
                 kk += 1;
             }
         }
@@ -87,9 +87,10 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
         let mut k = 0;
         let mut i = start;
         while i < jj {
-            if V[usz(I[i] + h as isize)] < x {
+            let v = V[usz(I[i] + h as isize)];
+            if v < x {
                 i += 1;
-            } else if V[usz(I[i] + h as isize)] == x {
+            } else if v == x {
                 I.swap(i, jj + j);
                 j += 1;
             } else {
@@ -108,8 +109,8 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
         if jj > start {
             split(I, V, start, jj - start, h);
         }
-        for i in 0..kk - jj {
-            V[usz(I[jj + i])] = kk as isize - 1;
+        for &Ii in &I[jj..kk] {
+            V[usz(Ii)] = kk as isize - 1;
         }
         if jj == kk - 1 {
             I[jj] = -1;
@@ -122,8 +123,8 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
 
 fn qsufsort(I: &mut [isize], V: &mut [isize], old: &[u8]) {
     let mut buckets: [isize; 256] = [0; 256];
-    for i in 0..old.len() {
-        buckets[old[i] as usize] += 1;
+    for &o in old {
+        buckets[o as usize] += 1;
     }
     for i in 1..256 {
         buckets[i] += buckets[i - 1];
@@ -170,7 +171,7 @@ fn qsufsort(I: &mut [isize], V: &mut [isize], old: &[u8]) {
         if len != 0 {
             I[usz(i - len)] = -len;
         }
-        h = h + h;
+        h += h;
     }
     for i in 0..old.len() + 1 {
         I[usz(V[i])] = i as isize;
@@ -215,7 +216,7 @@ fn offtout(x: isize, buf: &mut [u8]) {
 
 fn bsdiff_internal(old: &[u8], new: &[u8], writer: &mut dyn Write) -> io::Result<()> {
     let mut I = vec![0; old.len() + 1];
-    let mut buffer = vec![0; new.len() + 1];
+    let mut buffer = Vec::new();
     let mut V = vec![0; old.len() + 1];
     qsufsort(&mut I, &mut V, old);
 
@@ -317,14 +318,18 @@ fn bsdiff_internal(old: &[u8], new: &[u8], writer: &mut dyn Write) -> io::Result
         );
         writer.write_all(&buf[..24])?;
 
-        for i in 0..lenf {
-            buffer[i] = new[lastscan + i].wrapping_sub(old[lastpos + i]);
-        }
-        writer.write_all(&buffer[..lenf])?;
-        for i in 0..scan - lenb - (lastscan + lenf) {
-            buffer[i] = new[lastscan + lenf + i];
-        }
-        writer.write_all(&buffer[..(scan - lenb - (lastscan + lenf))])?;
+        buffer.clear();
+        buffer.extend(
+            new[lastscan..lastscan + lenf]
+                .iter()
+                .zip(&old[lastpos..lastpos + lenf])
+                .map(|(n, o)| n.wrapping_sub(*o)),
+        );
+        writer.write_all(&buffer)?;
+
+        let write_len = scan - lenb - (lastscan + lenf);
+        let write_start = lastscan + lenf;
+        writer.write_all(&new[write_start..write_start + write_len])?;
 
         lastscan = scan - lenb;
         lastpos = pos - lenb;
