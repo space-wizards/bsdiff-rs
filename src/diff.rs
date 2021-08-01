@@ -182,24 +182,24 @@ fn matchlen(old: &[u8], new: &[u8]) -> usize {
     old.iter().zip(new).take_while(|(a, b)| a == b).count()
 }
 
-fn search(I: &[isize], old: &[u8], new: &[u8], st: usize, en: usize) -> (isize, usize) {
-    if en < 2 + st {
-        let x = matchlen(&old[usz(I[st])..], new);
-        let y = matchlen(&old[usz(I[en])..], new);
+fn search(I: &[isize], old: &[u8], new: &[u8]) -> (isize, usize) {
+    if I.len() < 3 {
+        let x = matchlen(&old[usz(I[0])..], new);
+        let y = matchlen(&old[usz(I[I.len()-1])..], new);
         if x > y {
-            (I[st], x)
+            (I[0], x)
         } else {
-            (I[en], y)
+            (I[I.len()-1], y)
         }
     } else {
-        let x = usz(st as isize + (en as isize - st as isize) / 2);
-        let left = &old[usz(I[x])..];
+        let mid = (I.len()-1) / 2;
+        let left = &old[usz(I[mid])..];
         let right = new;
         let len_to_check = left.len().min(right.len());
         if left[..len_to_check] < right[..len_to_check] {
-            search(I, old, new, x, en)
+            search(&I[mid..], old, new)
         } else {
-            search(I, old, new, st, x)
+            search(&I[..=mid], old, new)
         }
     }
 }
@@ -231,7 +231,7 @@ fn bsdiff_internal(old: &[u8], new: &[u8], writer: &mut dyn Write) -> io::Result
         scan += len;
         let mut scsc = scan;
         while scan < new.len() {
-            let (p, l) = search(&I, old, &new[scan..], 0, old.len());
+            let (p, l) = search(&I[..=old.len()], old, &new[scan..]);
             pos = usz(p);
             len = l;
             while scsc < scan + len {
