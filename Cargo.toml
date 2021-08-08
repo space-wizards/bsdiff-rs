@@ -1,11 +1,13 @@
 [package]
 name = "bsdiff"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["pieterjan.briers@gmail.com", "Kornel <kornel@geekhood.net>"]
 description = "Rust port of the bsdiff binary diffing algorithm."
 readme = "README.md"
-keywords = ["bsdiff", "bspatch", "diff"]
+categories = ["compression"]
+keywords = ["bspatch", "patch", "diff", "delta", "binary"]
 license = "BSD-2-Clause"
-homepage = "https://github.com/space-wizards/bsdiff-rs"
+homepage = "https://lib.rs/bsdiff"
 repository = "https://github.com/space-wizards/bsdiff-rs"
 edition = "2018"
+include = ["src/*.rs", "LICENSE", "README.md", "Cargo.toml"]
