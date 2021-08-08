@@ -1,6 +1,6 @@
 [package]
 name = "bsdiff"
-version = "0.1.6"
+version = "0.2.0"
 authors = ["pieterjan.briers@gmail.com", "Kornel <kornel@geekhood.net>"]
 description = "Rust port of the bsdiff binary diffing algorithm."
 readme = "README.md"

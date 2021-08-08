@@ -34,51 +34,65 @@ use std::io::Read;
 /// Apply a patch to an "old" file, returning the "new" file.
 /// 
 /// `old` is the old file, `patch` will be read from with the patch,`new` is the buffer that will be written into.
-/// `new` must be large enough to store the resulting file. You should probably store the size of the patched file somewhere when diffing the files.
-pub fn patch<T>(old: &[u8], patch: &mut T, mut new: &mut [u8]) -> io::Result<()>
-    where T: Read
-{
+pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Result<()> {
     let mut oldpos = 0;
-
-    while !new.is_empty() {
+    loop {
         // Read control data
-        let mut buf = [0u8; 24];
-        patch.read_exact(&mut buf)?;
+        let mut buf = [0; 24];
+        if read_or_eof(patch, &mut buf)? {
+            return Ok(())
+        }
+
         // only seek can be negative
-        let mixlen = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
-        let copylen = u64::from_le_bytes(buf[8..16].try_into().unwrap()) as usize;
-        let seeklen = offtin(buf[16..24].try_into().unwrap());
+        let mix_len = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
+        let copy_len = u64::from_le_bytes(buf[8..16].try_into().unwrap()) as usize;
+        let seek_len = offtin(buf[16..24].try_into().unwrap());
+
+        // Read diff string and literal data at once
+        let to_read = copy_len + mix_len;
+        let mix_start = new.len();
+        let has_read = patch.take(to_read as u64).read_to_end(new)?;
 
         // oldpos needs to be checked before the for loop to optimize it better
-        if mixlen > new.len() || oldpos > old.len() {
+        if has_read != to_read {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
-        let (mix, rest) = new.split_at_mut(mixlen);
-        // Read diff string
-        patch.read_exact(mix)?;
 
-        for (n, o) in mix.iter_mut().zip(&old[oldpos..]) {
+        let mix_slice = new.get_mut(mix_start..mix_start + mix_len).ok_or(io::ErrorKind::UnexpectedEof)?;
+        let old_slice = old.get(oldpos..oldpos + mix_len).ok_or(io::ErrorKind::UnexpectedEof)?;
+        for (n, o) in mix_slice.iter_mut().zip(old_slice) {
             *n = n.wrapping_add(*o);
         }
 
         // Adjust pointers
-        new = rest;
-        oldpos += mixlen;
-
-        if copylen > new.len() {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        let (copy, rest) = new.split_at_mut(copylen);
-        patch.read_exact(copy)?;
-
-        // Adjust pointers
-        new = rest;
-        oldpos = (oldpos as i64 + seeklen) as usize;
+        oldpos += mix_len;
+        oldpos = (oldpos as i64 + seek_len) as usize;
     }
-
-    Ok(())
 }
 
+/// It allows EOF only before the first byte.
+fn read_or_eof<T: Read>(reader: &mut T, buf: &mut [u8; 24]) -> io::Result<bool> {
+    let mut tmp = &mut buf[..];
+    loop {
+        match reader.read(tmp) {
+            Ok(0) => {
+                return if tmp.len() == 24 {
+                    Ok(true)
+                } else {
+                    Err(io::ErrorKind::UnexpectedEof.into())
+                }
+            },
+            Ok(n) => {
+                if n >= tmp.len() {
+                    return Ok(false);
+                }
+                tmp = &mut tmp[n..];
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+}
 
 /// Reads sign-magnitude i64 little-endian
 #[inline]

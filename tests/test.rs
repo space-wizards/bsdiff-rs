@@ -1,6 +1,6 @@
 use bsdiff::patch;
 use bsdiff::diff;
-use std::io::{Cursor, ErrorKind};
+use std::io::ErrorKind;
 
 #[test]
 fn test_it() {
@@ -10,30 +10,28 @@ fn test_it() {
     let two = std::fs::read("tests/test_2").unwrap();
     let expected = std::fs::read("tests/expected_diff").unwrap();
 
+    let mut patch = Vec::with_capacity(expected.len());
+    diff::diff(&one, &two, &mut patch).unwrap();
 
-    let mut cursor = Cursor::new(Vec::new());
-    diff::diff(&one, &two, &mut cursor).unwrap();
+    assert_eq!(&expected, &patch);
 
-    assert!(&expected == cursor.get_ref());
-
-    cursor.set_position(0);
-
-    let mut patched = vec![0; two.len()];
-    patch::patch(&one, &mut cursor, &mut patched).unwrap();
+    let mut patched = Vec::with_capacity(two.len());
+    patch::patch(&one, &mut patch.as_slice(), &mut patched).unwrap();
     assert!(patched == two);
 }
 
 #[test]
-fn test_too_small() {
+fn test_truncated_patch() {
     let one = vec![1, 2, 3];
     let two = [1, 2, 3, 4];
-    let mut cursor = Cursor::new(Vec::new());
+    let mut buf = Vec::new();
 
-    diff::diff(&one, &two, &mut cursor).unwrap();
-    cursor.set_position(0);
+    diff::diff(&one, &two, &mut buf).unwrap();
 
-    let mut patched = vec![0, 3];
-    let error = patch::patch(&one, &mut cursor, &mut patched).unwrap_err();
-
-    assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    let mut patched = Vec::new();
+    while buf.len() > 1 {
+        buf.pop();
+        let error = patch::patch(&one, &mut buf.as_slice(), &mut patched).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    }
 }

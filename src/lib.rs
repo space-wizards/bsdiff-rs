@@ -11,13 +11,12 @@
 //!
 //! let one = vec![1, 2, 3, 4, 5];
 //! let two = vec![1, 2, 4, 6];
-//! let mut cursor = Cursor::new(Vec::new());
+//! let mut patch = Vec::new();
 //!
-//! diff::diff(&one, &two, &mut cursor).unwrap();
-//! cursor.set_position(0);
+//! diff::diff(&one, &two, &mut patch).unwrap();
 //!
-//! let mut patched = vec![0; two.len()];
-//! patch::patch(&one, &mut cursor, &mut patched).unwrap();
+//! let mut patched = Vec::with_capacity(two.len());
+//! patch::patch(&one, &mut patch.as_slice(), &mut patched).unwrap();
 //! assert_eq!(patched, two);
 //! ```
 
