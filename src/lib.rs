@@ -4,22 +4,22 @@
 //!
 //! It is usually a good idea to use bsdiff alongside a compression algorithm like bzip2.
 //!
-//! # Examples
-//! ```
-//! use std::io::Cursor;
-//! # use bsdiff::{patch, diff};
+//! # Example
 //!
+//! ```
 //! let one = vec![1, 2, 3, 4, 5];
 //! let two = vec![1, 2, 4, 6];
 //! let mut patch = Vec::new();
 //!
-//! diff::diff(&one, &two, &mut patch).unwrap();
+//! bsdiff::diff(&one, &two, &mut patch).unwrap();
 //!
 //! let mut patched = Vec::with_capacity(two.len());
-//! patch::patch(&one, &mut patch.as_slice(), &mut patched).unwrap();
+//! bsdiff::patch(&one, &mut patch.as_slice(), &mut patched).unwrap();
 //! assert_eq!(patched, two);
 //! ```
 
-#[allow(non_snake_case)]
-pub mod diff;
-pub mod patch;
+mod diff;
+mod patch;
+
+pub use diff::diff;
+pub use patch::patch;

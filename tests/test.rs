@@ -1,5 +1,3 @@
-use bsdiff::patch;
-use bsdiff::diff;
 use std::io::ErrorKind;
 
 #[test]
@@ -11,12 +9,12 @@ fn test_it() {
     let expected = std::fs::read("tests/expected_diff").unwrap();
 
     let mut patch = Vec::with_capacity(expected.len());
-    diff::diff(&one, &two, &mut patch).unwrap();
+    bsdiff::diff(&one, &two, &mut patch).unwrap();
 
     assert_eq!(&expected, &patch);
 
     let mut patched = Vec::with_capacity(two.len());
-    patch::patch(&one, &mut patch.as_slice(), &mut patched).unwrap();
+    bsdiff::patch(&one, &mut patch.as_slice(), &mut patched).unwrap();
     assert!(patched == two);
 }
 
@@ -26,12 +24,12 @@ fn test_truncated_patch() {
     let two = [1, 2, 3, 4];
     let mut buf = Vec::new();
 
-    diff::diff(&one, &two, &mut buf).unwrap();
+    bsdiff::diff(&one, &two, &mut buf).unwrap();
 
     let mut patched = Vec::new();
     while buf.len() > 1 {
         buf.pop();
-        let error = patch::patch(&one, &mut buf.as_slice(), &mut patched).unwrap_err();
+        let error = bsdiff::patch(&one, &mut buf.as_slice(), &mut patched).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
     }
 }
