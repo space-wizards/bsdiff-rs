@@ -129,19 +129,17 @@ fn qsufsort(I: &mut [isize], V: &mut [isize], old: &[u8]) {
     for i in 1..256 {
         buckets[i] += buckets[i - 1];
     }
-    let mut i = 255;
-    while i > 0 {
+    for i in (1..256).rev() {
         buckets[i] = buckets[i - 1];
-        i -= 1;
     }
     buckets[0] = 0;
-    for i in 0..old.len() {
-        buckets[old[i] as usize] += 1;
-        I[usz(buckets[old[i] as usize])] = i as isize;
+    for (i, old) in old.iter().copied().enumerate() {
+        buckets[old as usize] += 1;
+        I[usz(buckets[old as usize])] = i as isize;
     }
     I[0] = old.len() as isize;
-    for i in 0..old.len() {
-        V[i] = buckets[old[i] as usize];
+    for (i, old) in old.iter().copied().enumerate() {
+        V[i] = buckets[old as usize];
     }
     V[old.len()] = 0;
     for i in 1..256 {
@@ -173,8 +171,8 @@ fn qsufsort(I: &mut [isize], V: &mut [isize], old: &[u8]) {
         }
         h += h;
     }
-    for i in 0..old.len() + 1 {
-        I[usz(V[i])] = i as isize;
+    for (i, v) in V[0..old.len() + 1].iter().copied().enumerate() {
+        I[usz(v)] = i as isize;
     }
 }
 
