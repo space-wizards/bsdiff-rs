@@ -1,20 +1,15 @@
 use bsdiff::patch;
 use bsdiff::diff;
-
-use std::io::{Cursor, Read, ErrorKind};
-use std::fs::File;
+use std::io::{Cursor, ErrorKind};
 
 #[test]
 fn test_it() {
     // The test files are just build artifacts I had lying around.
     // Quite large and probably *some* similarities.
-    let mut one = vec![];
-    let mut two = vec![];
-    let mut expected = vec![];
+    let one = std::fs::read("tests/test_1").unwrap();
+    let two = std::fs::read("tests/test_2").unwrap();
+    let expected = std::fs::read("tests/expected_diff").unwrap();
 
-    File::open("tests/test_1").unwrap().read_to_end(&mut one).unwrap();
-    File::open("tests/test_2").unwrap().read_to_end(&mut two).unwrap();
-    File::open("tests/expected_diff").unwrap().read_to_end(&mut expected).unwrap();
 
     let mut cursor = Cursor::new(Vec::new());
     diff::diff(&one, &two, &mut cursor).unwrap();
