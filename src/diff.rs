@@ -44,7 +44,18 @@ fn usz(i: isize) -> usize {
     i as usize
 }
 
-fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
+struct SplitParams {
+    start: usize,
+    len: usize,
+}
+
+fn split_internal(
+    I: &mut [isize],
+    V: &mut [isize],
+    start: usize,
+    len: usize,
+    h: usize,
+) -> Option<SplitParams> {
     if len < 16 {
         let mut k = start;
         while k < start + len {
@@ -70,6 +81,8 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
             }
             k += j;
         }
+
+        None
     } else {
         let x = V[usz(I[start + len / 2] + h as isize)];
         let mut jj = 0;
@@ -116,9 +129,22 @@ fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
         if jj == kk - 1 {
             I[jj] = -1;
         }
+
         if start + len > kk {
-            split(I, V, kk, start + len - kk, h);
+            Some(SplitParams {
+                start: kk,
+                len: start + len - kk,
+            })
+        } else {
+            None
         }
+    }
+}
+
+fn split(I: &mut [isize], V: &mut [isize], start: usize, len: usize, h: usize) {
+    let mut ret = Some(SplitParams { start, len });
+    while let Some(params) = ret {
+        ret = split_internal(I, V, params.start, params.len, h);
     }
 }
 
