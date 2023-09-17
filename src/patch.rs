@@ -35,7 +35,7 @@ use std::io::Read;
 /// 
 /// `old` is the old file, `patch` will be read from with the patch,`new` is the buffer that will be written into.
 pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Result<()> {
-    let mut oldpos = 0;
+    let mut oldpos: usize = 0;
     loop {
         // Read control data
         let mut buf = [0; 24];
@@ -49,7 +49,7 @@ pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Resul
         let seek_len = offtin(buf[16..24].try_into().unwrap());
 
         // Read diff string and literal data at once
-        let to_read = copy_len + mix_len;
+        let to_read = copy_len.saturating_add(mix_len);
         let mix_start = new.len();
         let has_read = patch.take(to_read as u64).read_to_end(new)?;
 
@@ -58,15 +58,15 @@ pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Resul
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
 
-        let mix_slice = new.get_mut(mix_start..mix_start + mix_len).ok_or(io::ErrorKind::UnexpectedEof)?;
-        let old_slice = old.get(oldpos..oldpos + mix_len).ok_or(io::ErrorKind::UnexpectedEof)?;
+        let mix_slice = new.get_mut(mix_start..mix_start.saturating_add(mix_len)).ok_or(io::ErrorKind::UnexpectedEof)?;
+        let old_slice = old.get(oldpos..oldpos.saturating_add(mix_len)).ok_or(io::ErrorKind::UnexpectedEof)?;
         for (n, o) in mix_slice.iter_mut().zip(old_slice) {
             *n = n.wrapping_add(*o);
         }
 
         // Adjust pointers
         oldpos += mix_len;
-        oldpos = (oldpos as i64 + seek_len) as usize;
+        oldpos = (oldpos as i64).saturating_add(seek_len) as usize;
     }
 }
 
