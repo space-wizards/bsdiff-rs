@@ -9,5 +9,5 @@ keywords = ["bspatch", "patch", "diff", "delta", "binary"]
 license = "BSD-2-Clause"
 homepage = "https://lib.rs/bsdiff"
 repository = "https://github.com/space-wizards/bsdiff-rs"
-edition = "2018"
+edition = "2021"
 include = ["src/*.rs", "LICENSE", "README.md", "Cargo.toml"]

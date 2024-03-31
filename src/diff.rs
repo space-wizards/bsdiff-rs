@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+use std::cmp::Ordering;
 use std::io;
 use std::io::Write;
 
@@ -101,15 +102,16 @@ fn split_internal(
         let mut k = 0;
         let mut i = start;
         while i < jj {
-            let v = V[usz(I[i] + h as isize)];
-            if v < x {
-                i += 1;
-            } else if v == x {
-                I.swap(i, jj + j);
-                j += 1;
-            } else {
-                I.swap(i, kk + k);
-                k += 1;
+            match V[usz(I[i] + h as isize)].cmp(&x) {
+                Ordering::Less => i += 1,
+                Ordering::Equal => {
+                    I.swap(i, jj + j);
+                    j += 1;
+                }
+                Ordering::Greater => {
+                    I.swap(i, kk + k);
+                    k += 1;
+                }
             }
         }
         while jj + j < kk {
@@ -210,14 +212,14 @@ fn matchlen(old: &[u8], new: &[u8]) -> usize {
 fn search(I: &[isize], old: &[u8], new: &[u8]) -> (isize, usize) {
     if I.len() < 3 {
         let x = matchlen(&old[usz(I[0])..], new);
-        let y = matchlen(&old[usz(I[I.len()-1])..], new);
+        let y = matchlen(&old[usz(I[I.len() - 1])..], new);
         if x > y {
             (I[0], x)
         } else {
-            (I[I.len()-1], y)
+            (I[I.len() - 1], y)
         }
     } else {
-        let mid = (I.len()-1) / 2;
+        let mid = (I.len() - 1) / 2;
         let left = &old[usz(I[mid])..];
         let right = new;
         let len_to_check = left.len().min(right.len());
