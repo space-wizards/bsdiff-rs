@@ -32,7 +32,7 @@ use std::io;
 use std::io::Read;
 
 /// Apply a patch to an "old" file, returning the "new" file.
-/// 
+///
 /// `old` is the old file, `patch` will be read from with the patch,`new` is the buffer that will be written into.
 pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Result<()> {
     let mut oldpos: usize = 0;
@@ -40,7 +40,7 @@ pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Resul
         // Read control data
         let mut buf = [0; 24];
         if read_or_eof(patch, &mut buf)? {
-            return Ok(())
+            return Ok(());
         }
 
         // only seek can be negative
@@ -99,7 +99,7 @@ fn read_or_eof<T: Read>(reader: &mut T, buf: &mut [u8; 24]) -> io::Result<bool> 
                 } else {
                     Err(io::ErrorKind::UnexpectedEof.into())
                 }
-            },
+            }
             Ok(n) => {
                 if n >= tmp.len() {
                     return Ok(false);
@@ -116,9 +116,9 @@ fn read_or_eof<T: Read>(reader: &mut T, buf: &mut [u8; 24]) -> io::Result<bool> 
 #[inline]
 fn offtin(buf: [u8; 8]) -> i64 {
     let y = i64::from_le_bytes(buf);
-    if 0 == y & (1<<63) {
+    if 0 == y & (1 << 63) {
         y
     } else {
-        -(y & !(1<<63))
+        -(y & !(1 << 63))
     }
 }
