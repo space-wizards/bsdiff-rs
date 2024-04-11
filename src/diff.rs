@@ -200,7 +200,7 @@ fn qsufsort(I: &mut [isize], V: &mut [isize], old: &[u8]) {
         }
         h += h;
     }
-    for (i, v) in V[0..old.len() + 1].iter().copied().enumerate() {
+    for (i, v) in V[0..=old.len()].iter().copied().enumerate() {
         I[usz(v)] = i as isize;
     }
 }

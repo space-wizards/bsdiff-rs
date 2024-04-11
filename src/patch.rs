@@ -27,7 +27,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-use std::convert::TryInto;
 use std::io;
 use std::io::Read;
 
