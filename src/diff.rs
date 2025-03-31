@@ -233,10 +233,12 @@ fn search(I: &[isize], old: &[u8], new: &[u8]) -> (isize, usize) {
 
 #[inline]
 fn offtout(x: isize, buf: &mut [u8]) {
-    if x >= 0 {
-        buf.copy_from_slice(&x.to_le_bytes());
+    // so it works on 32-bit platforms
+    let x64 = x as i64;
+    if x64 >= 0 {
+        buf.copy_from_slice(&x64.to_le_bytes());
     } else {
-        let tmp = (-x) as usize | (1 << 63);
+        let tmp = (-x64) as u64 | (1u64 << 63);
         buf.copy_from_slice(&tmp.to_le_bytes());
     }
 }
