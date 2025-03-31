@@ -43,14 +43,14 @@ pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Resul
         }
 
         // only seek can be negative
-        let mix_len = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
-        let copy_len = u64::from_le_bytes(buf[8..16].try_into().unwrap()) as usize;
+        let mix_len = usize::try_from(u64::from_le_bytes(buf[0..8].try_into().unwrap())).map_err(|_| io::ErrorKind::InvalidData)?;
+        let copy_len = usize::try_from(u64::from_le_bytes(buf[8..16].try_into().unwrap())).map_err(|_| io::ErrorKind::InvalidData)?;
         let seek_len = offtin(buf[16..24].try_into().unwrap());
 
         // Read diff string and literal data at once
         let to_read = copy_len
             .checked_add(mix_len)
-            .ok_or(io::Error::from(io::ErrorKind::InvalidData))?;
+            .ok_or(io::ErrorKind::InvalidData)?;
         let mix_start = new.len();
         let has_read = patch.take(to_read as u64).read_to_end(new)?;
 
