@@ -59,31 +59,22 @@ pub fn patch<T: Read>(old: &[u8], patch: &mut T, new: &mut Vec<u8>) -> io::Resul
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
 
-        let mix_slice = new
-            .get_mut(
-                mix_start
-                    ..mix_start
-                        .checked_add(mix_len)
-                        .ok_or(io::Error::from(io::ErrorKind::InvalidData))?,
-            )
-            .ok_or(io::ErrorKind::UnexpectedEof)?;
-        let old_slice = old
-            .get(
-                oldpos
-                    ..oldpos
-                        .checked_add(mix_len)
-                        .ok_or(io::Error::from(io::ErrorKind::InvalidData))?,
-            )
-            .ok_or(io::ErrorKind::UnexpectedEof)?;
-        for (n, o) in mix_slice.iter_mut().zip(old_slice) {
-            *n = n.wrapping_add(*o);
+        let mix_end = mix_start.checked_add(mix_len).ok_or(io::ErrorKind::InvalidData)?;
+        let mix_slice = new.get_mut(mix_start..mix_end).ok_or(io::ErrorKind::UnexpectedEof)?;
+
+        let oldpos_end = oldpos.checked_add(mix_len).ok_or(io::ErrorKind::InvalidData)?;
+        let old_slice = old.get(oldpos ..oldpos_end).ok_or(io::ErrorKind::UnexpectedEof)?;
+
+        for (n, o) in mix_slice.iter_mut().zip(old_slice.iter().copied()) {
+            *n = n.wrapping_add(o);
         }
 
         // Adjust pointers
         oldpos += mix_len;
         oldpos = (oldpos as i64)
             .checked_add(seek_len)
-            .ok_or(io::Error::from(io::ErrorKind::InvalidData))? as usize;
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or(io::ErrorKind::InvalidData)?;
     }
 }
 
