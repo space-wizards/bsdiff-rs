@@ -1,6 +1,6 @@
 [package]
 name = "bsdiff"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["pieterjan.briers@gmail.com", "Kornel <kornel@geekhood.net>"]
 description = "Rust port of the bsdiff binary diffing algorithm."
 readme = "README.md"
@@ -11,3 +11,4 @@ homepage = "https://lib.rs/bsdiff"
 repository = "https://github.com/space-wizards/bsdiff-rs"
 edition = "2021"
 include = ["src/*.rs", "LICENSE", "README.md", "Cargo.toml"]
+rust-version = "1.59"
